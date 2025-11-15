@@ -1,0 +1,63 @@
+{
+  "_comment": "Video dimensions and quality",
+  "width": 1280,
+  "height": 720,
+  "fps": 30,
+  
+  "_comment_content": "Content selection",
+  "reciterId": 17,
+  "translationId": 2,
+  "recitationMode": "gapped",
+  
+  "_comment_mode": "Recitation mode: 'gapped' for ayah-by-ayah (with pauses), 'gapless' for continuous surah",
+  
+  "_comment_fonts": "Font configuration - paths relative to assetFolderPath",
+  "arabicFont": {
+    "family": "KFGQPC HAFS Uthmanic Script",
+    "file": "fonts/UthmanicHafs_V22.ttf",
+    "size": 100,
+    "color": "FFFFFF"
+  },
+  "translationFont": {
+    "family": "American Captain",
+    "file": "fonts/American Captain.ttf",
+    "size": 50,
+    "color": "D3D3D3"
+  },
+  
+  "_comment_visual": "Visual styling",
+  "overlayColor": "0x000000@0.0",
+  "assetFolderPath": "assets",
+  "assetBgVideo": "videos/themes/stars.mp4",
+  
+  "_comment_data": "Data file paths",
+  "quranWordByWordPath": "data/quran/qpc-hafs-word-by-word.json",
+  
+  "_comment_timing": "Timing parameters (in seconds unless specified)",
+  "introDuration": 1.0,
+  "pauseAfterIntroDuration": 0.5,
+  "introFadeOutMs": 500,
+  
+  "_comment_animation": "Text animation parameters",
+  "enableTextGrowth": true,
+  "textGrowthThreshold": 100,
+  "maxGrowthFactor": 1.15,
+  "growthRateFactor": 0.05,
+  
+  "_comment_fade": "Fade effect parameters",
+  "fadeDurationFactor": 0.2,
+  "minFadeDuration": 0.05,
+  "maxFadeDuration": 0.1,
+  
+  "_comment_wrapping": "Text wrapping parameters",
+  "textWrapThreshold": 20,
+  "arabicMaxWidthFraction": 0.95,
+  "translationMaxWidthFraction": 0.85,
+  
+  "_comment_layout": "Layout parameters",
+  "verticalShift": 40.0,
+  
+  "_comment_thumbnail": "Thumbnail generation parameters",
+  "thumbnailColors": ["&HFFFFFF&", "&HC0C0C0&", "&H00D7FF&"],
+  "thumbnailNumberPadding": 100
+}
