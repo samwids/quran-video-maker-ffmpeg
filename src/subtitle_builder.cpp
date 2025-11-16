@@ -44,21 +44,25 @@ bool is_basic_latin_ascii(unsigned char c) {
     return c >= 0x20 && c <= 0x7E;
 }
 
-int adaptive_font_size_arabic(const std::string& text, int base_size) {
-    int word_count = std::count(text.begin(), text.end(), ' ') + 1;
-    if (word_count < 10) return 100;
-    if (word_count < 40) return 85;
-    if (word_count < 100) return 75;
-    return 50;
-}
+    int adaptive_font_size_arabic(const std::string& text, int base_size) {
+        int word_count = static_cast<int>(std::count(text.begin(), text.end(), ' ')) + 1;
+        word_count = std::max(1, word_count);
+        base_size = std::max(10, base_size);
+        if (word_count <= 10) return base_size;
+        if (word_count <= 25) return std::max(10, static_cast<int>(base_size * 0.9));
+        if (word_count <= 50) return std::max(10, static_cast<int>(base_size * 0.8));
+        if (word_count <= 90) return std::max(10, static_cast<int>(base_size * 0.7));
+        return std::max(10, static_cast<int>(base_size * 0.6));
+    }
 
-int adaptive_font_size_translation(const std::string& text, int base_size) {
-    int length = text.size();
-    if (length < 80) return base_size;
-    if (length < 160) return base_size * 0.85;
-    if (length < 240) return base_size * 0.7;
-    return base_size * 0.6;
-}
+    int adaptive_font_size_translation(const std::string& text, int base_size) {
+        base_size = std::max(10, base_size);
+        int length = static_cast<int>(text.size());
+        if (length < 80) return base_size;
+        if (length < 160) return std::max(10, static_cast<int>(base_size * 0.9));
+        if (length < 240) return std::max(10, static_cast<int>(base_size * 0.8));
+        return std::max(10, static_cast<int>(base_size * 0.65));
+    }
 
 bool should_grow(const std::string& arabic_text, int growth_threshold) {
     int word_count = std::count(arabic_text.begin(), arabic_text.end(), ' ') + 1;
@@ -281,13 +285,18 @@ std::string buildAssFile(const AppConfig& config,
             << "\\b1\\bord4\\shad3\\be2\\c&HFFD700&\\3c&H000000&"
             << "\\fad(0," << config.introFadeOutMs << ")}" << localized_surah_text_render << "\n";
 
+    std::string range_text = LocalizationUtils::getLocalizedNumber(options.surah, language_code) +
+                             " • " + std::to_string(options.from) + "-" + std::to_string(options.to);
+    range_text = applyLatinFontFallback(range_text,
+                                        QuranData::defaultTranslationFontFamily,
+                                        config.translationFont.family);
+
     ass_file << "Dialogue: 0,0:00:00.00," << format_time_ass(intro_duration)
             << ",Translation,,0,0,0,,{\\an5\\pos(" << config.width/2 << "," << config.height/2 + scaled_font_size*1.5 << ")"
             << "\\fs" << scaled_font_size/2
             << "\\b0\\bord2\\shad1\\be1\\c&HFFFFFF&\\3c&H000000&"
             << "\\fad(0," << config.introFadeOutMs << ")}"
-            << LocalizationUtils::getLocalizedNumber(options.surah, language_code)
-            << " • " << options.from << "-" << options.to << "\n";
+            << range_text << "\n";
 
     // Process verses in parallel
     std::vector<VerseData> processed_verses(verses.size());
@@ -331,7 +340,9 @@ std::string buildAssFile(const AppConfig& config,
     for (const auto& verse_ref : processed_verses) {
         VerseData verse = verse_ref;
         int arabic_size = adaptive_font_size_arabic(verse.text, config.arabicFont.size);
-        int translation_size = adaptive_font_size_translation(verse.translation, config.translationFont.size);
+        std::string translation_rendered = applyLatinFontFallback(
+            verse.translation, QuranData::defaultTranslationFontFamily, config.translationFont.family);
+        int translation_size = adaptive_font_size_translation(translation_rendered, config.translationFont.size);
 
         double max_total_height = config.height * 0.8;
         double estimated_height = arabic_size * 1.2 + translation_size * 1.4;
@@ -371,7 +382,7 @@ std::string buildAssFile(const AppConfig& config,
         if (grow) {
             combined << "\\t(0," << verse.durationInSeconds*1000 << ",\\fs" << translation_size*growth_factor << ")";
         }
-        combined << "}" << verse.translation;
+        combined << "}" << translation_rendered;
 
         ass_file << "Dialogue: 0," << format_time_ass(cumulative_time) << ","
                 << format_time_ass(cumulative_time + verse.durationInSeconds)
