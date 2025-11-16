@@ -7,11 +7,9 @@
 #include <thread>
 #include <future>
 #include <cctype>
+#include <algorithm>
 #include "localization_utils.h"
-#include <hb.h>
-#include <hb-ft.h>
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include "text/text_layout.h"
 
 namespace fs = std::filesystem;
 
@@ -42,148 +40,6 @@ std::string format_ass_color(const std::string& hex_color) {
 
 bool is_basic_latin_ascii(unsigned char c) {
     return c >= 0x20 && c <= 0x7E;
-}
-
-    int adaptive_font_size_arabic(const std::string& text, int base_size) {
-        int word_count = static_cast<int>(std::count(text.begin(), text.end(), ' ')) + 1;
-        word_count = std::max(1, word_count);
-        base_size = std::max(10, base_size);
-        if (word_count <= 10) return base_size;
-        if (word_count <= 25) return std::max(10, static_cast<int>(base_size * 0.9));
-        if (word_count <= 50) return std::max(10, static_cast<int>(base_size * 0.8));
-        if (word_count <= 90) return std::max(10, static_cast<int>(base_size * 0.7));
-        return std::max(10, static_cast<int>(base_size * 0.6));
-    }
-
-    int adaptive_font_size_translation(const std::string& text, int base_size) {
-        base_size = std::max(10, base_size);
-        int length = static_cast<int>(text.size());
-        if (length < 80) return base_size;
-        if (length < 160) return std::max(10, static_cast<int>(base_size * 0.9));
-        if (length < 240) return std::max(10, static_cast<int>(base_size * 0.8));
-        return std::max(10, static_cast<int>(base_size * 0.65));
-    }
-
-bool should_grow(const std::string& arabic_text, int growth_threshold) {
-    int word_count = std::count(arabic_text.begin(), arabic_text.end(), ' ') + 1;
-    return word_count < growth_threshold;
-}
-
-struct FontContext {
-    FT_Library ft;
-    FT_Face face;
-    hb_font_t* hb_font;
-};
-
-FontContext init_font(const std::string& font_file, int font_size) {
-    FontContext ctx;
-    if (FT_Init_FreeType(&ctx.ft)) throw std::runtime_error("Failed to init FreeType");
-    if (FT_New_Face(ctx.ft, font_file.c_str(), 0, &ctx.face)) throw std::runtime_error("Failed to load font");
-    FT_Set_Char_Size(ctx.face, 0, font_size*64, 0, 0);
-    ctx.hb_font = hb_ft_font_create(ctx.face, nullptr);
-    return ctx;
-}
-
-double measure_text_width(FontContext& ctx, const std::string& text) {
-    hb_buffer_t* buf = hb_buffer_create();
-    hb_buffer_add_utf8(buf, text.c_str(), -1, 0, -1);
-    hb_buffer_guess_segment_properties(buf);
-    hb_shape(ctx.hb_font, buf, nullptr, 0);
-
-    unsigned int glyph_count;
-    hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(buf, &glyph_count);
-    double width = 0.0;
-    for (unsigned int i = 0; i < glyph_count; i++) width += glyph_pos[i].x_advance / 64.0;
-
-    hb_buffer_destroy(buf);
-    return width;
-}
-
-void free_font(FontContext& ctx) {
-    hb_font_destroy(ctx.hb_font);
-    FT_Done_Face(ctx.face);
-    FT_Done_FreeType(ctx.ft);
-}
-
-std::vector<std::string> split_ass_lines(const std::string& text) {
-    std::vector<std::string> lines;
-    size_t start = 0;
-    while (start <= text.size()) {
-        size_t pos = text.find("\\N", start);
-        if (pos == std::string::npos) {
-            lines.push_back(text.substr(start));
-            break;
-        }
-        lines.push_back(text.substr(start, pos - start));
-        start = pos + 2;
-    }
-    if (lines.empty()) {
-        lines.push_back(text);
-    }
-    return lines;
-}
-
-std::string wrap_single_line(const std::string& line, FontContext& ctx, double max_width) {
-    if (line.empty() || measure_text_width(ctx, line) <= max_width) {
-        return line;
-    }
-
-    std::istringstream iss(line);
-    std::string word;
-    std::string current;
-    std::vector<std::string> wrapped_lines;
-
-    auto flush_current = [&]() {
-        if (!current.empty()) {
-            wrapped_lines.push_back(current);
-            current.clear();
-        }
-    };
-
-    while (iss >> word) {
-        std::string candidate = current.empty() ? word : current + " " + word;
-        if (measure_text_width(ctx, candidate) <= max_width || current.empty()) {
-            current = candidate;
-        } else {
-            flush_current();
-            current = word;
-        }
-    }
-    flush_current();
-
-    if (wrapped_lines.empty()) {
-        wrapped_lines.push_back(line);
-    }
-
-    std::string rebuilt;
-    for (size_t i = 0; i < wrapped_lines.size(); ++i) {
-        rebuilt += wrapped_lines[i];
-        if (i + 1 < wrapped_lines.size()) rebuilt += "\\N";
-    }
-    return rebuilt;
-}
-
-std::string wrap_if_too_wide_cached(const std::string& text, FontContext& ctx, double max_width) {
-    auto lines = split_ass_lines(text);
-    bool wrapping_applied = false;
-    for (auto& line : lines) {
-        double width = measure_text_width(ctx, line);
-        if (width > max_width) {
-            line = wrap_single_line(line, ctx, max_width);
-            wrapping_applied = true;
-        }
-    }
-
-    if (!wrapping_applied) {
-        return text;
-    }
-
-    std::string result;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        result += lines[i];
-        if (i + 1 < lines.size()) result += "\\N";
-    }
-    return result;
 }
 
 } // namespace
@@ -256,17 +112,15 @@ std::string buildAssFile(const AppConfig& config,
     std::string localized_surah_text = localized_surah_label + " " + localized_surah_name;
     std::string localized_surah_text_render =
         applyLatinFontFallback(localized_surah_text,
-                               QuranData::defaultTranslationFontFamily,
+                               config.translationFallbackFontFamily,
                                config.translationFont.family);
 
     ass_file << "[Script Info]\nTitle: Quran Video Subtitles\nScriptType: v4.00+\n";
     ass_file << "PlayResX: " << config.width << "\nPlayResY: " << config.height << "\n\n";
 
-    double paddingFraction = std::clamp(config.textHorizontalPadding, 0.0, 0.45);
-    double paddingPixels = config.width * paddingFraction;
+    TextLayout::Engine layoutEngine(config);
+    double paddingPixels = layoutEngine.paddingPixels();
     int styleMargin = std::max(10, static_cast<int>(paddingPixels));
-    double arabicWrapWidth = std::max(50.0, (config.width - 2.0 * paddingPixels) * config.arabicMaxWidthFraction);
-    double translationWrapWidth = std::max(50.0, (config.width - 2.0 * paddingPixels) * config.translationMaxWidthFraction);
 
     ass_file << "[V4+ Styles]\n";
     ass_file << "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n";
@@ -288,7 +142,7 @@ std::string buildAssFile(const AppConfig& config,
     std::string range_text = LocalizationUtils::getLocalizedNumber(options.surah, language_code) +
                              " • " + std::to_string(options.from) + "-" + std::to_string(options.to);
     range_text = applyLatinFontFallback(range_text,
-                                        QuranData::defaultTranslationFontFamily,
+                                        config.translationFallbackFontFamily,
                                         config.translationFont.family);
 
     ass_file << "Dialogue: 0,0:00:00.00," << format_time_ass(intro_duration)
@@ -300,49 +154,37 @@ std::string buildAssFile(const AppConfig& config,
 
     // Process verses in parallel
     std::vector<VerseData> processed_verses(verses.size());
+    std::vector<TextLayout::LayoutResult> layout_results(verses.size());
     std::vector<std::future<void>> futures;
-    size_t max_threads = std::thread::hardware_concurrency();
-    
+    size_t max_threads = std::max<size_t>(1, std::thread::hardware_concurrency());
+
     for (size_t i = 0; i < verses.size(); ++i) {
         futures.push_back(std::async(std::launch::async, [&, i]() {
             processed_verses[i] = verses[i];
-            int arabic_size = adaptive_font_size_arabic(processed_verses[i].text, config.arabicFont.size);
-            int arabic_word_count = std::count(processed_verses[i].text.begin(), processed_verses[i].text.end(), ' ') + 1;
-            bool growArabic = config.enableTextGrowth && should_grow(processed_verses[i].text, config.textWrapThreshold);
-            double arabicGrowthFactor = growArabic
-                ? std::min(config.maxGrowthFactor, 1.0 + processed_verses[i].durationInSeconds * config.growthRateFactor)
-                : 1.0;
-            int maxArabicSize = std::max(1, static_cast<int>(arabic_size * arabicGrowthFactor));
-            
-            FontContext arabic_ctx = init_font(fs::path(config.arabicFont.file), maxArabicSize);
-            processed_verses[i].text = wrap_if_too_wide_cached(processed_verses[i].text, arabic_ctx, arabicWrapWidth);
-            free_font(arabic_ctx);
-
-            int translation_size = adaptive_font_size_translation(processed_verses[i].translation, config.translationFont.size);
-            double translationGrowthFactor = growArabic
-                ? std::min(config.maxGrowthFactor, 1.0 + processed_verses[i].durationInSeconds * config.growthRateFactor)
-                : 1.0;
-            int maxTranslationSize = std::max(1, static_cast<int>(translation_size * translationGrowthFactor));
-            FontContext translation_ctx = init_font(fs::path(config.translationFont.file), maxTranslationSize);
-            processed_verses[i].translation = wrap_if_too_wide_cached(processed_verses[i].translation, translation_ctx, translationWrapWidth);
-            free_font(translation_ctx);
+            layout_results[i] = layoutEngine.layoutVerse(verses[i]);
+            processed_verses[i].text = layout_results[i].wrappedArabic;
+            processed_verses[i].translation = layout_results[i].wrappedTranslation;
         }));
-        
+
         if (futures.size() >= max_threads) {
             for (auto& f : futures) f.get();
             futures.clear();
         }
     }
-    
+
     for (auto& f : futures) f.get();
 
     double cumulative_time = intro_duration + pause_after_intro_duration;
-    for (const auto& verse_ref : processed_verses) {
-        VerseData verse = verse_ref;
-        int arabic_size = adaptive_font_size_arabic(verse.text, config.arabicFont.size);
+    double verticalPadding = config.height * std::clamp(config.textVerticalPadding, 0.0, 0.3);
+
+    for (size_t idx = 0; idx < processed_verses.size(); ++idx) {
+        VerseData verse = processed_verses[idx];
+        const auto& info = layout_results[idx];
+
+        int arabic_size = info.baseArabicSize;
         std::string translation_rendered = applyLatinFontFallback(
-            verse.translation, QuranData::defaultTranslationFontFamily, config.translationFont.family);
-        int translation_size = adaptive_font_size_translation(translation_rendered, config.translationFont.size);
+            verse.translation, config.translationFallbackFontFamily, config.translationFont.family);
+        int translation_size = info.baseTranslationSize;
 
         double max_total_height = config.height * 0.8;
         double estimated_height = arabic_size * 1.2 + translation_size * 1.4;
@@ -352,41 +194,49 @@ std::string buildAssFile(const AppConfig& config,
             translation_size = static_cast<int>(translation_size * scale_factor);
         }
 
-        int arabic_word_count = std::count(verse.text.begin(), verse.text.end(), ' ') + 1;
-        bool grow = config.enableTextGrowth && should_grow(verse.text, config.textGrowthThreshold);
+        bool grow = info.growArabic;
+        double growth_factor = info.arabicGrowthFactor;
+        double translation_growth = info.translationGrowthFactor;
 
         double vertical_shift = config.verticalShift;
         double total_height = arabic_size * 1.2 + translation_size * 1.4;
-        double arabic_y = config.height/2.0 - total_height*0.25 + vertical_shift;
-        double translation_y = config.height/2.0 + total_height*0.25 + vertical_shift;
+        double arabic_y = config.height / 2.0 - total_height * 0.25 + vertical_shift;
+        double translation_y = config.height / 2.0 + total_height * 0.25 + vertical_shift;
 
-        arabic_y = std::max(arabic_y, static_cast<double>(arabic_size * 1.5));
-        translation_y = std::min(translation_y, static_cast<double>(config.height - translation_size*2));
+        double minArabicY = verticalPadding + arabic_size * 1.1;
+        double maxTranslationY = config.height - verticalPadding - translation_size * 1.1;
+        arabic_y = std::max(arabic_y, minArabicY);
+        translation_y = std::min(translation_y, maxTranslationY);
+        if (translation_y - arabic_y < translation_size * 1.2) {
+            translation_y = std::min(maxTranslationY, arabic_y + translation_size * 1.2);
+        }
 
-        double fade_time = std::min(std::max(verse.durationInSeconds * config.fadeDurationFactor, config.minFadeDuration), config.maxFadeDuration);
-        double growth_factor = (arabic_word_count >= config.textGrowthThreshold) ? 1.0 : std::min(config.maxGrowthFactor, 1.0 + verse.durationInSeconds * config.growthRateFactor);
+        double fade_time = std::min(
+            std::max(verse.durationInSeconds * config.fadeDurationFactor, config.minFadeDuration),
+            config.maxFadeDuration);
 
         std::stringstream combined;
         combined << "{\\an5\\q2\\rArabic"
-                << "\\fs" << arabic_size
-                << "\\pos(" << config.width/2 << "," << arabic_y << ")"
-                << "\\fad(" << (fade_time*1000) << "," << (fade_time*1000) << ")";
+                 << "\\fs" << arabic_size
+                 << "\\pos(" << config.width / 2 << "," << arabic_y << ")"
+                 << "\\fad(" << (fade_time * 1000) << "," << (fade_time * 1000) << ")";
         if (grow) {
-            combined << "\\t(0," << verse.durationInSeconds*1000 << ",\\fs" << arabic_size*growth_factor << ")";
+            combined << "\\t(0," << verse.durationInSeconds * 1000 << ",\\fs" << arabic_size * growth_factor << ")";
         }
         combined << "}" << verse.text
-                << "\\N{\\an5\\q2\\rTranslation"
-                << "\\fs" << translation_size
-                << "\\pos(" << config.width/2 << "," << translation_y << ")"
-                << "\\fad(" << (fade_time*1000) << "," << (fade_time*1000) << ")";
-        if (grow) {
-            combined << "\\t(0," << verse.durationInSeconds*1000 << ",\\fs" << translation_size*growth_factor << ")";
+                 << "\\N{\\an5\\q2\\rTranslation"
+                 << "\\fs" << translation_size
+                 << "\\pos(" << config.width / 2 << "," << translation_y << ")"
+                 << "\\fad(" << (fade_time * 1000) << "," << (fade_time * 1000) << ")";
+        if (translation_growth > 1.0) {
+            combined << "\\t(0," << verse.durationInSeconds * 1000 << ",\\fs"
+                     << translation_size * translation_growth << ")";
         }
         combined << "}" << translation_rendered;
 
         ass_file << "Dialogue: 0," << format_time_ass(cumulative_time) << ","
-                << format_time_ass(cumulative_time + verse.durationInSeconds)
-                << ",Translation,,0,0,0,," << combined.str() << "\n";
+                 << format_time_ass(cumulative_time + verse.durationInSeconds)
+                 << ",Translation,,0,0,0,," << combined.str() << "\n";
 
         cumulative_time += verse.durationInSeconds;
     }

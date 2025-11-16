@@ -28,6 +28,7 @@ struct AppConfig {
     // Font configuration
     FontConfig arabicFont;
     FontConfig translationFont;
+    std::string translationFallbackFontFamily;
     
     // Visual styling
     std::string overlayColor;
@@ -58,6 +59,7 @@ struct AppConfig {
     double arabicMaxWidthFraction;  // max fraction of screen width for Arabic
     double translationMaxWidthFraction; // max fraction of screen width for translation
     double textHorizontalPadding;   // fraction of width reserved as padding on each side
+    double textVerticalPadding;     // fraction of height reserved for margins
     
     // Layout parameters
     double verticalShift;           // pixels to shift text vertically

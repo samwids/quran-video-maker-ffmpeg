@@ -1,5 +1,6 @@
 #include "video_generator.h"
 #include "quran_data.h"
+#include "audio/custom_audio_processor.h"
 #include <iostream>
 #include <stdexcept>
 #include <sstream>
@@ -8,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <algorithm>
 #include "subtitle_builder.h"
 #include "localization_utils.h"
 
@@ -27,8 +29,9 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
         std::cout << "Generating subtitles..." << std::endl;
         std::string ass_filename = SubtitleBuilder::buildAssFile(config, options, verses, intro_duration, pause_after_intro_duration);
 
-        double total_duration = intro_duration + pause_after_intro_duration;
-        for(const auto& verse : verses) total_duration += verse.durationInSeconds;
+        double verses_duration = 0.0;
+        for (const auto& verse : verses) verses_duration += verse.durationInSeconds;
+        double total_duration = intro_duration + pause_after_intro_duration + verses_duration;
 
         std::stringstream filter_spec;
         filter_spec << "[0:v]loop=loop=-1:size=1:start=0,setpts=N/(FRAME_RATE*TB),scale=" << config.width << ":" << config.height;
@@ -80,19 +83,32 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
             // This is much more efficient than concat - one file read instead of N files
             if (verses.empty()) throw std::runtime_error("No verses to render");
             
-            std::string audioPath = verses[0].localAudioPath;
-            double startTime = verses[0].timestampFromMs / 1000.0;
+            std::string audioPath;
+            for (const auto& verse : verses) {
+                if (verse.localAudioPath.empty()) continue;
+                audioPath = verse.localAudioPath;
+                if (verse.fromCustomAudio) break;
+            }
+            if (audioPath.empty()) throw std::runtime_error("No audio path found for gapless render");
+            bool customClip = !verses.empty() && verses[0].fromCustomAudio;
+            double startTime = customClip ? 0.0 : verses[0].timestampFromMs / 1000.0;
             double endTime = verses.back().timestampToMs / 1000.0;
-            double audioDuration = endTime - startTime;
+            double trimmedDuration = std::max(0.0, endTime - startTime);
+            double measuredAudioDuration = customClip
+                ? Audio::CustomAudioProcessor::probeDuration(audioPath)
+                : trimmedDuration;
+            double audioDuration = customClip
+                ? std::max(measuredAudioDuration, verses_duration)
+                : measuredAudioDuration;
+            total_duration = intro_duration + pause_after_intro_duration + audioDuration;
             
-            // Calculate total video duration
-            double totalVideoDuration = intro_duration + pause_after_intro_duration + audioDuration;
-            
-            // Create silent audio for intro, then append actual recitation
             final_cmd << "ffmpeg -y "
                       << "-stream_loop -1 -i \"" << config.assetBgVideo << "\" "
-                      << "-f lavfi -t " << (intro_duration + pause_after_intro_duration) << " -i anullsrc=r=44100:cl=stereo "
-                      << "-ss " << startTime << " -t " << audioDuration << " -i \"" << audioPath << "\" "
+                      << "-f lavfi -t " << (intro_duration + pause_after_intro_duration) << " -i anullsrc=r=44100:cl=stereo ";
+            if (!customClip) {
+                final_cmd << "-ss " << startTime << " -t " << trimmedDuration << " ";
+            }
+            final_cmd << "-i \"" << audioPath << "\" "
                       << "-filter_complex \""
                       << "[0:v]setpts=PTS-STARTPTS,scale=" << config.width << ":" << config.height;
             
@@ -104,7 +120,7 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
                       << fs::absolute(config.assetFolderPath).string() + "/fonts" << "'[v];"
                       << "[1:a][2:a]concat=n=2:v=0:a=1[a]\" "
                       << "-map \"[v]\" -map \"[a]\" "
-                      << "-t " << totalVideoDuration << " ";
+                      << "-t " << total_duration << " ";
         } else {
             // For gapped: concatenate individual ayah audio files
             std::string concat_file_path = (fs::temp_directory_path() / "audiolist.txt").string();
@@ -161,7 +177,7 @@ void VideoGenerator::generateThumbnail(const CLIOptions& options, const AppConfi
         auto with_fallback = [&](const std::string& text) {
             return SubtitleBuilder::applyLatinFontFallback(
                 text,
-                QuranData::defaultTranslationFontFamily,
+                config.translationFallbackFontFamily,
                 config.translationFont.family);
         };
         std::string rendered_label = with_fallback(localized_surah_label);

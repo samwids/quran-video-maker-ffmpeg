@@ -41,11 +41,11 @@ Use your own audio files with VTT/SRT timing files for complete flexibility.
 - Consistent Bismillah insertion even with custom audio
 - Timing alignment survives reciters who rewind or repeat verses
 - Parser handles Arabic/non-Arabic numbering within subtitle files
+- Custom verse range slicing trims the requested ayat (plus Bismillah) into a standalone clip so late-range renders stay in sync and no longer drop the final verse
 
 **TODOs:**
 - Improve VTT/SRT parser robustness and validation
 - Add validation of timing file completeness
-- Add support for verse ranges not starting at 1
 - Add examples and documentation for creating timing files
 - Add CLI flag to disable automatic Bismillah insertion
 
@@ -75,10 +75,11 @@ Automatically adjusts font sizes based on verse length.
 - Basic adaptive sizing for translation text
 - Different size thresholds for different verse lengths
 - Long verses automatically wrap across multiple lines so they stay on screen
+- Growth-aware wrapping now measures text at its final animated size and honors the horizontal/vertical padding knobs so long verses never bleed off screen
 
 **TODOs:**
 - Implement size calculations to account for screen aspect ratio changes (current support is for landscape mode)
-- Implement better text sizing algorithm for short, medium, and longer verses(e.g., 2:282-283). Shorter verses take up more screen space and longer verses take up space such that they don't fall off the screen.
+- Continue tuning adaptive heuristics for portrait canvases and extremely long verses (e.g., 2:282-283) so both Arabic and translations share the available space gracefully
 
 ### Text Animations
 **Status:** 🟢 Stable

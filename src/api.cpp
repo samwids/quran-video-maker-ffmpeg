@@ -3,6 +3,7 @@
 #include "timing_parser.h"
 #include "cache_utils.h"
 #include "recitation_utils.h"
+#include "audio/custom_audio_processor.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -15,158 +16,10 @@
 #include <optional>
 #include <cstdlib>
 #include <limits>
- 
-extern "C" {
-#include <libavformat/avformat.h>
-}
+#include <cctype>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
-
-namespace {
-    // Helper to get audio duration using FFmpeg
-    double get_audio_duration(const std::string& filepath) {
-        AVFormatContext* format_context = nullptr;
-        if (avformat_open_input(&format_context, filepath.c_str(), nullptr, nullptr) != 0) {
-            std::cerr << "Warning: Could not open audio file " << filepath << " to get duration." << std::endl;
-            return 0.0;
-        }
-        if (avformat_find_stream_info(format_context, nullptr) < 0) {
-            std::cerr << "Warning: Could not find stream info for " << filepath << " to get duration." << std::endl;
-            avformat_close_input(&format_context);
-            return 0.0;
-        }
-        double duration = (double)format_context->duration / AV_TIME_BASE;
-        avformat_close_input(&format_context);
-        return duration;
-    }
-
-    fs::path make_temp_audio_path(const fs::path& baseDir, const std::string& prefix, const std::string& ext = ".m4a") {
-        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        return baseDir / (prefix + "_" + std::to_string(stamp) + ext);
-    }
-
-    void run_ffmpeg_command(const std::string& cmd) {
-        int code = std::system(cmd.c_str());
-        if (code != 0) {
-            throw std::runtime_error("FFmpeg command failed: " + cmd);
-        }
-    }
-
-    fs::path trim_audio_segment(const std::string& source,
-                                double startSec,
-                                double endSec,
-                                const fs::path& audioDir,
-                                const std::string& label) {
-        fs::path output = make_temp_audio_path(audioDir, label);
-        std::ostringstream cmd;
-        cmd << "ffmpeg -y ";
-        if (startSec > 0.0) cmd << "-ss " << std::fixed << std::setprecision(3) << startSec << " ";
-        if (endSec > 0.0 && endSec > startSec) {
-            cmd << "-to " << std::fixed << std::setprecision(3) << endSec << " ";
-        }
-        cmd << "-i \"" << source << "\" -c copy \"" << output.string() << "\"";
-        run_ffmpeg_command(cmd.str());
-        return output;
-    }
-
-    fs::path concat_audio_segments(const std::vector<std::string>& segments,
-                                   const fs::path& audioDir,
-                                   const std::string& label) {
-        if (segments.empty()) {
-            throw std::runtime_error("No audio segments provided for concatenation.");
-        }
-        if (segments.size() == 1) {
-            return fs::path(segments.front());
-        }
-        fs::path output = make_temp_audio_path(audioDir, label);
-        std::ostringstream cmd;
-        cmd << "ffmpeg -y ";
-        for (const auto& segment : segments) {
-            cmd << "-i \"" << segment << "\" ";
-        }
-        cmd << "-filter_complex \"";
-        for (size_t i = 0; i < segments.size(); ++i) {
-            cmd << "[" << i << ":a]";
-        }
-        cmd << "concat=n=" << segments.size() << ":v=0:a=1[out]\" -map \"[out]\" \"" << output.string() << "\"";
-        run_ffmpeg_command(cmd.str());
-        return output;
-    }
-
-    void splice_custom_audio_range(std::vector<VerseData>& verses,
-                                   const CLIOptions& options,
-                                   const fs::path& audioDir) {
-        if (options.customAudioPath.empty() || options.from <= 1 || verses.empty()) return;
-
-        bool hasBism = !verses.empty() && verses.front().verseKey == "1:1";
-        double mainStartMs = std::numeric_limits<double>::max();
-        double mainEndMs = 0.0;
-        std::string customSourcePath;
-
-        for (const auto& verse : verses) {
-            if (!verse.fromCustomAudio) continue;
-            if (verse.verseKey == "1:1") continue;
-            mainStartMs = std::min(mainStartMs, static_cast<double>(verse.absoluteTimestampFromMs));
-            mainEndMs = std::max(mainEndMs, static_cast<double>(verse.absoluteTimestampToMs));
-            if (customSourcePath.empty()) customSourcePath = verse.sourceAudioPath;
-        }
-
-        if (!std::isfinite(mainStartMs) || customSourcePath.empty() || mainEndMs <= mainStartMs) {
-            return;
-        }
-
-        fs::path mainTrimmed = trim_audio_segment(customSourcePath,
-                                                  mainStartMs / 1000.0,
-                                                  mainEndMs / 1000.0,
-                                                  audioDir,
-                                                  "custom_main");
-
-        std::vector<std::string> concatSegments;
-        double bismDurationMs = 0.0;
-        if (hasBism) {
-            const auto& bismVerse = verses.front();
-            if (bismVerse.fromCustomAudio) {
-                fs::path bismTrimmed = trim_audio_segment(
-                    bismVerse.sourceAudioPath.empty() ? customSourcePath : bismVerse.sourceAudioPath,
-                    bismVerse.absoluteTimestampFromMs / 1000.0,
-                    bismVerse.absoluteTimestampToMs / 1000.0,
-                    audioDir,
-                    "custom_bism");
-                concatSegments.push_back(bismTrimmed.string());
-                bismDurationMs = bismVerse.absoluteTimestampToMs - bismVerse.absoluteTimestampFromMs;
-            } else {
-                concatSegments.push_back(bismVerse.sourceAudioPath.empty() ? bismVerse.localAudioPath
-                                                                          : bismVerse.sourceAudioPath);
-                bismDurationMs = bismVerse.durationInSeconds * 1000.0;
-            }
-        }
-
-        concatSegments.push_back(mainTrimmed.string());
-        fs::path finalAudio = concat_audio_segments(concatSegments, audioDir, "custom_splice");
-        double offsetMs = hasBism ? bismDurationMs : 0.0;
-
-        for (size_t i = 0; i < verses.size(); ++i) {
-            verses[i].localAudioPath = finalAudio.string();
-            verses[i].sourceAudioPath = finalAudio.string();
-            if (hasBism && i == 0) {
-                verses[i].timestampFromMs = 0;
-                verses[i].timestampToMs = static_cast<int>(bismDurationMs);
-                verses[i].durationInSeconds = bismDurationMs / 1000.0;
-                verses[i].absoluteTimestampFromMs = verses[i].timestampFromMs;
-                verses[i].absoluteTimestampToMs = verses[i].timestampToMs;
-                continue;
-            }
-            if (!verses[i].fromCustomAudio) continue;
-            double newStart = (verses[i].absoluteTimestampFromMs - mainStartMs) + offsetMs;
-            double newEnd = (verses[i].absoluteTimestampToMs - mainStartMs) + offsetMs;
-            verses[i].timestampFromMs = static_cast<int>(std::max(0.0, newStart));
-            verses[i].timestampToMs = static_cast<int>(std::max(newStart + 1.0, newEnd));
-            verses[i].durationInSeconds = (verses[i].timestampToMs - verses[i].timestampFromMs) / 1000.0;
-            verses[i].absoluteTimestampFromMs = verses[i].timestampFromMs;
-            verses[i].absoluteTimestampToMs = verses[i].timestampToMs;
-        }
-    }
 
     // GAPPED MODE: Fetch individual ayah data
     VerseData fetch_single_verse_gapped(int surah, int verseNum, const AppConfig& config, bool useCache, const fs::path& audioDir) {
@@ -221,7 +74,7 @@ namespace {
         }
         result.localAudioPath = audioPath.string();
 
-        result.durationInSeconds = get_audio_duration(result.localAudioPath);
+        result.durationInSeconds = Audio::CustomAudioProcessor::probeDuration(result.localAudioPath);
         if (result.durationInSeconds <= 0.0 && verseAudio.contains("duration") && !verseAudio["duration"].is_null()) {
             try {
                 result.durationInSeconds = verseAudio["duration"].get<double>();
@@ -479,7 +332,6 @@ namespace {
         RecitationUtils::normalizeGaplessTimings(results);
         return results;
     }
-}
 
 void pop_back_utf8(std::string& s) {
     if (s.empty()) return;
@@ -488,6 +340,18 @@ void pop_back_utf8(std::string& s) {
         --i;
     }
     s.erase(i);
+}
+
+void trim_last_word(std::string& s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
+        s.pop_back();
+    }
+    while (!s.empty() && !std::isspace(static_cast<unsigned char>(s.back()))) {
+        pop_back_utf8(s);
+    }
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
+        s.pop_back();
+    }
 }
 
 std::vector<VerseData> API::fetchQuranData(const CLIOptions& options, const AppConfig& config) {
@@ -573,16 +437,14 @@ std::vector<VerseData> API::fetchQuranData(const CLIOptions& options, const AppC
     // Remove last word from Bismillah if it's not Surah 1 or 9
     if (options.surah != 1 && options.surah != 9) {
         if (!results.empty() && !results[0].text.empty()) {
-            results[0].text.pop_back();
-            results[0].text.pop_back();
-            results[0].text.pop_back();
+            trim_last_word(results[0].text);
         }
     }
 
     if (config.recitationMode == RecitationMode::GAPLESS &&
         !options.customAudioPath.empty() &&
         options.from > 1) {
-        splice_custom_audio_range(results, options, audioDir);
+        Audio::CustomAudioProcessor::spliceRange(results, options, audioDir);
     }
 
     return results;

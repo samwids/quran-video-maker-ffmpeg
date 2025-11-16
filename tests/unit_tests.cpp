@@ -9,6 +9,8 @@
 #include "localization_utils.h"
 #include "subtitle_builder.h"
 #include "timing_parser.h"
+#include "text/text_layout.h"
+#include "audio/custom_audio_processor.h"
 
 namespace fs = std::filesystem;
 
@@ -103,6 +105,61 @@ void testSubtitleBuilder() {
     assert(fs::exists(assPath));
 }
 
+void testTextLayoutEngine() {
+    CLIOptions opts;
+    opts.surah = 2;
+    opts.from = 282;
+    opts.to = 282;
+    AppConfig cfg = loadConfig((getProjectRoot() / "config.json").string(), opts);
+    TextLayout::Engine engine(cfg);
+    VerseData verse = makeSampleVerse();
+    verse.text = std::string(600, 'a');
+    verse.translation = std::string(600, 'b');
+    verse.durationInSeconds = 5.0;
+    auto layout = engine.layoutVerse(verse);
+    assert(layout.baseArabicSize > 0);
+    assert(layout.baseTranslationSize > 0);
+    assert(layout.wrappedArabic.find("\\N") != std::string::npos);
+    assert(layout.wrappedTranslation.find("\\N") != std::string::npos);
+}
+
+void testCustomAudioPlan() {
+    CLIOptions opts;
+    opts.customAudioPath = "custom.mp3";
+    opts.from = 72;
+    std::vector<VerseData> verses;
+    VerseData bism = makeSampleVerse();
+    bism.verseKey = "1:1";
+    bism.fromCustomAudio = true;
+    bism.absoluteTimestampFromMs = 0;
+    bism.absoluteTimestampToMs = 1500;
+    bism.sourceAudioPath = "custom.mp3";
+    verses.push_back(bism);
+
+    VerseData v1 = makeSampleVerse();
+    v1.verseKey = "19:72";
+    v1.fromCustomAudio = true;
+    v1.absoluteTimestampFromMs = 60000;
+    v1.absoluteTimestampToMs = 70000;
+    v1.sourceAudioPath = "custom.mp3";
+    verses.push_back(v1);
+
+    VerseData v2 = makeSampleVerse();
+    v2.verseKey = "19:73";
+    v2.fromCustomAudio = true;
+    v2.absoluteTimestampFromMs = 70000;
+    v2.absoluteTimestampToMs = 82000;
+    v2.sourceAudioPath = "custom.mp3";
+    verses.push_back(v2);
+
+    auto plan = Audio::CustomAudioProcessor::buildSplicePlan(verses, opts);
+    assert(plan.enabled);
+    assert(plan.hasBismillah);
+    assert(plan.bismillahFromCustomSource);
+    assert(plan.mainStartMs == 60000);
+    assert(plan.mainEndMs == 82000);
+}
+
 int main() {
     fs::current_path(getProjectRoot());
     testConfigLoader();
@@ -111,6 +168,8 @@ int main() {
     testRecitationUtils();
     testTimingParser();
     testSubtitleBuilder();
+    testTextLayoutEngine();
+    testCustomAudioPlan();
     std::cout << "All unit tests passed.\n";
     return 0;
 }

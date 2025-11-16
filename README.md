@@ -89,7 +89,7 @@ ctest --output-on-failure
 cd ..
 ```
 
-The tests exercise config loading, timing parsing, recitation utilities, and subtitle generation helpers. Please run them before submitting changes.
+The tests exercise config loading, timing parsing, recitation utilities, subtitle generation helpers, the text layout engine, and the custom audio splicer plan builder. Please run them before submitting changes.
 
 ## Quick Start
 
@@ -109,7 +109,7 @@ Generate a video for Surah Al-Fatiha (verses 1-7):
 
 The tool uses a `config.json` file for default settings. You can override these via command-line options.
 
-Key rendering knobs inside `config.json` include `textHorizontalPadding` (fractional left/right padding reserved for both Arabic and translation lines), `arabicMaxWidthFraction`, and `translationMaxWidthFraction`. Together they control how aggressively long verses wrap before reaching the screen edge.
+Key rendering knobs inside `config.json` include `textHorizontalPadding` (fractional left/right padding reserved for both Arabic and translation lines), `textVerticalPadding` (top/bottom guard rails that keep subtitles from touching the screen edge), `arabicMaxWidthFraction`, and `translationMaxWidthFraction`. Together they control how aggressively long verses wrap before reaching the screen edge and how much breathing room you get when growth animations are enabled. If you use a translation font that cannot render ASCII digits or Latin characters cleanly, set `translationFallbackFontFamily` to the font the renderer should temporarily swap to for those glyph ranges.
 
 The `qualityProfile` block governs encoder defaults (preset, CRF, pixel format, bitrate). Three built-in profiles are available:
 
@@ -148,6 +148,10 @@ You can override any individual quality parameter via CLI (`--quality-profile`, 
 | `--text-padding` | Override horizontal padding fraction (0-0.45) applied to both languages | From config (default 0.05) |
 
 **Note:** When using custom audio & timing, the renderer trims the requested range, inserts a Bismillah clip, and re-bases the verse timings so your clip can start at any ayah. Built-in gapless data is still disabled for now, so gapless renders require `--custom-audio` + `--custom-timing`.
+
+#### Quality Profiles
+
+`config.json` now exposes a `qualityProfiles` object where you can describe presets for `speed`, `balanced`, `max`, or any custom label you invent. Each entry can override `preset`, `crf`, `pixelFormat`, and the optional bitrate knobs. The CLI flag `--quality-profile` simply picks one of those blocks (default: `balanced`) and still allows overriding individual values via `--preset`, `--crf`, `--pix-fmt`, `--video-bitrate`, `--maxrate`, and `--bufsize`.
 
 ### Localization Assets
 

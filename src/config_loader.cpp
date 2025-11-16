@@ -13,19 +13,21 @@ using json = nlohmann::json;
 
 namespace {
 struct QualityProfileSettings {
-    const char* preset;
+    std::string preset;
     int crf;
-    const char* pixelFormat;
-    const char* videoBitrate;
-    const char* videoMaxRate;
-    const char* videoBufSize;
+    std::string pixelFormat;
+    std::string videoBitrate;
+    std::string videoMaxRate;
+    std::string videoBufSize;
 };
 
-const std::map<std::string, QualityProfileSettings> kQualityProfiles = {
-    {"speed",    {"ultrafast", 25, "yuv420p",    "",       "",        ""}},
-    {"balanced", {"fast",      21, "yuv420p",    "4500k",  "",        ""}},
-    {"max",      {"slow",      18, "yuv420p10le","8000k",  "10000k",  "12000k"}}
-};
+std::map<std::string, QualityProfileSettings> defaultQualityProfiles() {
+    return {
+        {"speed",    {"ultrafast", 25, "yuv420p",    "",       "",        ""}},
+        {"balanced", {"fast",      21, "yuv420p",    "4500k",  "",        ""}},
+        {"max",      {"slow",      18, "yuv420p10le","8000k",  "10000k",  "12000k"}}
+    };
+}
 
 std::string toLowerCopy(const std::string& value) {
     std::string normalized = value;
@@ -34,32 +36,56 @@ std::string toLowerCopy(const std::string& value) {
     return normalized;
 }
 
-void applyQualityProfile(AppConfig& cfg, CLIOptions& options) {
+std::map<std::string, QualityProfileSettings> loadQualityProfiles(const json& data) {
+    auto profiles = defaultQualityProfiles();
+    if (!data.contains("qualityProfiles") || !data["qualityProfiles"].is_object()) {
+        return profiles;
+    }
+    for (const auto& [key, value] : data["qualityProfiles"].items()) {
+        if (!value.is_object()) continue;
+        QualityProfileSettings settings;
+        auto normalized = toLowerCopy(key);
+        auto existing = profiles.find(normalized);
+        if (existing != profiles.end()) settings = existing->second;
+        if (value.contains("preset")) settings.preset = value["preset"].get<std::string>();
+        if (value.contains("crf")) settings.crf = value["crf"].get<int>();
+        if (value.contains("pixelFormat")) settings.pixelFormat = value["pixelFormat"].get<std::string>();
+        if (value.contains("videoBitrate")) settings.videoBitrate = value["videoBitrate"].get<std::string>();
+        if (value.contains("videoMaxRate")) settings.videoMaxRate = value["videoMaxRate"].get<std::string>();
+        if (value.contains("videoBufSize")) settings.videoBufSize = value["videoBufSize"].get<std::string>();
+        profiles[normalized] = settings;
+    }
+    return profiles;
+}
+
+void applyQualityProfile(AppConfig& cfg,
+                         CLIOptions& options,
+                         const std::map<std::string, QualityProfileSettings>& profiles) {
     auto profileName = toLowerCopy(cfg.qualityProfile);
-    auto it = kQualityProfiles.find(profileName);
-    if (it == kQualityProfiles.end()) {
+    auto it = profiles.find(profileName);
+    if (it == profiles.end()) {
         if (!cfg.qualityProfile.empty() && cfg.qualityProfile != "balanced") {
             std::cerr << "Warning: Unknown quality profile '" << cfg.qualityProfile << "'. Using custom values." << std::endl;
         }
         return;
     }
     const QualityProfileSettings& defaults = it->second;
-    if (!options.presetProvided && defaults.preset && *defaults.preset) {
+    if (!options.presetProvided && !defaults.preset.empty()) {
         options.preset = defaults.preset;
     }
     if (cfg.crf <= 0 && defaults.crf > 0) {
         cfg.crf = defaults.crf;
     }
-    if (cfg.pixelFormat.empty() && defaults.pixelFormat) {
+    if (cfg.pixelFormat.empty() && !defaults.pixelFormat.empty()) {
         cfg.pixelFormat = defaults.pixelFormat;
     }
-    if (cfg.videoBitrate.empty() && defaults.videoBitrate) {
+    if (cfg.videoBitrate.empty() && !defaults.videoBitrate.empty()) {
         cfg.videoBitrate = defaults.videoBitrate;
     }
-    if (cfg.videoMaxRate.empty() && defaults.videoMaxRate) {
+    if (cfg.videoMaxRate.empty() && !defaults.videoMaxRate.empty()) {
         cfg.videoMaxRate = defaults.videoMaxRate;
     }
-    if (cfg.videoBufSize.empty() && defaults.videoBufSize) {
+    if (cfg.videoBufSize.empty() && !defaults.videoBufSize.empty()) {
         cfg.videoBufSize = defaults.videoBufSize;
     }
 }
@@ -115,6 +141,8 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
     }
     cfg.translationFont.size = translationFontConfig.value("size", 50);
     cfg.translationFont.color = translationFontConfig.value("color", "D3D3D3");
+    cfg.translationFallbackFontFamily =
+        data.value("translationFallbackFontFamily", QuranData::defaultTranslationFontFamily);
     
     // Auto-select translation font based on translation ID if overridden config not provided
     if (translationFontFileOverridden) {
@@ -147,6 +175,7 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
     cfg.arabicMaxWidthFraction = data.value("arabicMaxWidthFraction", 0.95);
     cfg.translationMaxWidthFraction = data.value("translationMaxWidthFraction", 0.85);
     cfg.textHorizontalPadding = data.value("textHorizontalPadding", 0.05);
+    cfg.textVerticalPadding = data.value("textVerticalPadding", 0.08);
     
     // Layout parameters
     cfg.verticalShift = data.value("verticalShift", 40.0);
@@ -166,6 +195,7 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
     cfg.videoBitrate = data.value("videoBitrate", "");
     cfg.videoMaxRate = data.value("videoMaxRate", "");
     cfg.videoBufSize = data.value("videoBufSize", "");
+    auto qualityProfiles = loadQualityProfiles(data);
 
     // CLI overrides
     if (options.reciterId != -1) cfg.reciterId = options.reciterId;
@@ -197,7 +227,7 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
     cfg.enableTextGrowth = options.enableTextGrowth;
 
     if (!options.qualityProfile.empty()) cfg.qualityProfile = options.qualityProfile;
-    applyQualityProfile(cfg, options);
+    applyQualityProfile(cfg, options, qualityProfiles);
     if (options.customCRF != -1) cfg.crf = options.customCRF;
     if (!options.pixelFormatOverride.empty()) cfg.pixelFormat = options.pixelFormatOverride;
     if (!options.videoBitrateOverride.empty()) cfg.videoBitrate = options.videoBitrateOverride;

@@ -50,6 +50,8 @@ add_library(qvm_lib
     src/recitation_utils.cpp src/recitation_utils.h
     src/subtitle_builder.cpp src/subtitle_builder.h
     src/localization_utils.cpp src/localization_utils.h
+    src/audio/custom_audio_processor.cpp src/audio/custom_audio_processor.h
+    src/text/text_layout.cpp src/text/text_layout.h
     src/types.h
 )
 
