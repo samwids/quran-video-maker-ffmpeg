@@ -95,10 +95,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // if (options.recitationMode == "gapless") {
-    //     std::cerr << gaplessDisabledError << std::endl;
-    //     return 1;
-    // }
+    // We want to allow gapless mode for custom audio
+    if (options.recitationMode == "gapless" && options.customAudioPath.empty()) {
+        std::cerr << gaplessDisabledError << std::endl;
+        return 1;
+    }
     
     if (result.count("output")) {
         options.output = result["output"].as<std::string>();
@@ -120,10 +121,11 @@ int main(int argc, char* argv[]) {
         
         AppConfig config = loadConfig(options.configPath, options);
 
-        // if (config.recitationMode == RecitationMode::GAPLESS) {
-        //     std::cerr << gaplessDisabledError << std::endl;
-        //     return 1;
-        // }
+        // We want to allow gapless mode for custom audio
+        if (config.recitationMode == RecitationMode::GAPLESS && options.customAudioPath.empty()) {
+            std::cerr << gaplessDisabledError << std::endl;
+            return 1;
+        }
         
         // Override background theme if specified
         if (result.count("bg-theme")) {

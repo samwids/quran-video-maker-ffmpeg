@@ -52,7 +52,8 @@
   "_comment_wrapping": "Text wrapping parameters",
   "textWrapThreshold": 20,
   "arabicMaxWidthFraction": 0.95,
-  "translationMaxWidthFraction": 0.85,
+  "translationMaxWidthFraction": 0.95,
+  "textHorizontalPadding": 0.00,
   
   "_comment_layout": "Layout parameters",
   "verticalShift": 40.0,

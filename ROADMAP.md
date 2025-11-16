@@ -8,7 +8,7 @@ The project is in active development with core functionality working but many fe
 
 ## Testing
 
-This project has no testing implemented. The goal is to fix all issues starting with "Fix", then refactor the code piece by piece to support unit testing, then support integration and e2e tests. Once those steps are complete, we can create some GitHub workflows to automate build/test checks for PRs, packaging releases, and distributing to different package managers.
+Basic unit tests now cover config loading, timing parsing, recitation utilities, and cache helpers. Remaining work is to expand coverage into video generation and add integration/e2e suites, followed by CI automation for regressions and release packaging.
 
 ## Core Features (In Progress)
 

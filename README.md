@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>⚠️ This project is in active development. Testing has not been setup. Expect bugs and breaking changes.</strong>
+  <strong>⚠️ This project is in active development. A lightweight unit test suite is included, but expect rapid changes.</strong>
 </p>
 
 
@@ -19,7 +19,7 @@
 - Dynamic animations including text growth and fade effects
 - Customizable backgrounds and visual themes
 
-The tool currently only supports gapped mode (ayah-by-ayah with pauses). Gapless mode is temporarily disabled because it's too buggy and the gapless data needs to be cleaned first.
+The tool supports both gapped (ayah-by-ayah) and gapless (continuous) workflows. Custom recitations can be supplied via `--custom-audio` and `--custom-timing`.
 
 ## Prerequisites
 
@@ -81,6 +81,16 @@ cd ..
 
 The executable will be available at `./build/quran-video-maker`.
 
+### 5. Run Unit Tests
+
+```bash
+cd build
+ctest --output-on-failure
+cd ..
+```
+
+The tests exercise config loading, timing parsing, recitation utilities, and subtitle generation helpers. Please run them before submitting changes.
+
 ## Quick Start
 
 Please check the the `/out` folder after these commands are run.
@@ -98,6 +108,8 @@ Generate a video for Surah Al-Fatiha (verses 1-7):
 ## Configuration
 
 The tool uses a `config.json` file for default settings. You can override these via command-line options.
+
+Key rendering knobs inside `config.json` include `textHorizontalPadding` (fractional left/right padding reserved for both Arabic and translation lines), `arabicMaxWidthFraction`, and `translationMaxWidthFraction`. Together they control how aggressively long verses wrap before reaching the screen edge.
 
 ### Command-Line Options
 
@@ -117,10 +129,11 @@ The tool uses a `config.json` file for default settings. You can override these 
 | `--no-cache` | Disable caching | false |
 | `--clear-cache` | Clear all cached data | false |
 | `--no-growth` | Disable text growth animations | false |
-| `--custom-audio` | Custom audio file path or URL (gapless only, currently disabled) | - |
-| `--custom-timing` | Custom timing file (VTT or SRT, currently disabled) | - |
+| `--custom-audio` | Custom audio file path or URL (gapless only) | - |
+| `--custom-timing` | Custom timing file (VTT or SRT, required with custom audio) | - |
+| `--text-padding` | Override horizontal padding fraction (0-0.45) applied to both languages | From config (default 0.05) |
 
-**Note:** Gapless mode and all custom recitation options are temporarily disabled while the dataset is cleaned; running with those flags exits with `Error: Gapless mode is temporarily disabled because it's too buggy and the gapless data needs to be cleaned first.`
+**Note:** When using custom audio & timing, the renderer trims the requested range, inserts a Bismillah clip, and re-bases the verse timings so your clip can start at any ayah.
 
 ### Localization Assets
 
