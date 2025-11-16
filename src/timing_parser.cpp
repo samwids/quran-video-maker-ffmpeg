@@ -4,6 +4,146 @@
 #include <regex>
 #include <iostream>
 #include <algorithm>
+#include <vector>
+#include <cctype>
+#include <optional>
+#include <map>
+
+namespace {
+const std::map<std::string, char> kArabicDigits = {
+    {"٠", '0'}, {"١", '1'}, {"٢", '2'}, {"٣", '3'}, {"٤", '4'},
+    {"٥", '5'}, {"٦", '6'}, {"٧", '7'}, {"٨", '8'}, {"٩", '9'}
+};
+
+std::string strip_carriage_return(std::string line) {
+    if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+    }
+    return line;
+}
+
+bool contains_arabic_letters(const std::string& text) {
+    for (size_t i = 0; i < text.size();) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t advance = 1;
+        unsigned int codepoint = c;
+        if ((c & 0x80) == 0) {
+            advance = 1;
+        } else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            advance = 2;
+            codepoint = ((c & 0x1F) << 6) | (static_cast<unsigned char>(text[i+1]) & 0x3F);
+        } else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
+            advance = 3;
+            codepoint = ((c & 0x0F) << 12) |
+                        ((static_cast<unsigned char>(text[i+1]) & 0x3F) << 6) |
+                        (static_cast<unsigned char>(text[i+2]) & 0x3F);
+        } else if ((c & 0xF8) == 0xF0 && i + 3 < text.size()) {
+            advance = 4;
+            codepoint = ((c & 0x07) << 18) |
+                        ((static_cast<unsigned char>(text[i+1]) & 0x3F) << 12) |
+                        ((static_cast<unsigned char>(text[i+2]) & 0x3F) << 6) |
+                        (static_cast<unsigned char>(text[i+3]) & 0x3F);
+        }
+
+        if ((codepoint >= 0x0600 && codepoint <= 0x06FF) ||
+            (codepoint >= 0x0750 && codepoint <= 0x077F) ||
+            (codepoint >= 0x08A0 && codepoint <= 0x08FF)) {
+            return true;
+        }
+        i += advance;
+    }
+    return false;
+}
+
+std::string convert_arabic_digits_to_ascii(const std::string& text) {
+    std::string converted;
+    converted.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t advance = 1;
+        if ((c & 0x80) == 0) {
+            converted.push_back(static_cast<char>(c));
+        } else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            advance = 2;
+            std::string utf8_char = text.substr(i, advance);
+            auto it = kArabicDigits.find(utf8_char);
+            if (it != kArabicDigits.end()) {
+                converted.push_back(it->second);
+            } else {
+                converted.append(utf8_char);
+            }
+        } else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
+            advance = 3;
+            std::string utf8_char = text.substr(i, advance);
+            auto it = kArabicDigits.find(utf8_char);
+            if (it != kArabicDigits.end()) {
+                converted.push_back(it->second);
+            } else {
+                converted.append(utf8_char);
+            }
+        } else if ((c & 0xF8) == 0xF0 && i + 3 < text.size()) {
+            advance = 4;
+            std::string utf8_char = text.substr(i, advance);
+            auto it = kArabicDigits.find(utf8_char);
+            if (it != kArabicDigits.end()) {
+                converted.push_back(it->second);
+            } else {
+                converted.append(utf8_char);
+            }
+        } else {
+            converted.push_back(static_cast<char>(c));
+        }
+        i += advance;
+    }
+    return converted;
+}
+
+bool contains_bismillah_phrase(const std::string& text) {
+    if (text.empty()) return false;
+    static const std::vector<std::string> markers = {
+        "\xEF\xB7\xBD", // ﷽ ligature
+        "بِسْمِ",
+        "بسم الله",
+        "بسم",
+        "In the name of Allah",
+        "in the name of allah"
+    };
+
+    std::string lowered = text;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+    for (const auto& marker : markers) {
+        if (text.find(marker) != std::string::npos) return true;
+        if (lowered.find(marker) != std::string::npos) return true;
+    }
+    return false;
+}
+
+std::optional<std::string> extract_explicit_verse_key(const std::string& line) {
+    std::string converted = convert_arabic_digits_to_ascii(line);
+    static const std::regex ref_regex(R"((\d+)\s*[:：]\s*(\d+))");
+    std::smatch match;
+    if (std::regex_search(converted, match, ref_regex)) {
+        return match[1].str() + ":" + match[2].str();
+    }
+    return std::nullopt;
+}
+
+std::optional<int> extract_verse_number(const std::string& line) {
+    std::string converted = convert_arabic_digits_to_ascii(line);
+    static const std::regex number_regex(R"((\d+))");
+    std::smatch match;
+    if (std::regex_search(converted, match, number_regex)) {
+        try {
+            return std::stoi(match[1]);
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+} // namespace
 
 namespace TimingParser {
 
@@ -27,8 +167,10 @@ int timestampToMs(const std::string& timestamp) {
     return 0;
 }
 
-std::map<std::string, TimingEntry> parseTimingFile(const std::string& filepath) {
-    std::map<std::string, TimingEntry> timings;
+TimingParseResult parseTimingFile(const std::string& filepath) {
+    TimingParseResult result;
+    auto& timings = result.byKey;
+    auto& ordered = result.ordered;
     std::ifstream file(filepath);
 
     if (!file.is_open()) {
@@ -47,14 +189,10 @@ std::map<std::string, TimingEntry> parseTimingFile(const std::string& filepath) 
 
     std::string line;
     int currentIndex = 0;
-
-    // Arabic to Western numeral map (UTF-8 strings)
-    std::map<std::string, char> arabic_to_western = {
-        {"٠", '0'}, {"١", '1'}, {"٢", '2'}, {"٣", '3'}, {"٤", '4'},
-        {"٥", '5'}, {"٦", '6'}, {"٧", '7'}, {"٨", '8'}, {"٩", '9'}
-    };
+    int sequentialIndex = 0;
 
     while (std::getline(file, line)) {
+        line = strip_carriage_return(line);
         if (line.empty() || line.find("WEBVTT") != std::string::npos) continue;
 
         // Check if this is a sequence number (SRT)
@@ -71,66 +209,71 @@ std::map<std::string, TimingEntry> parseTimingFile(const std::string& filepath) 
             std::string startTime = match[1];
             std::string endTime = match[2];
 
+            std::vector<std::string> payload;
+            while (std::getline(file, line)) {
+                line = strip_carriage_return(line);
+                if (line.empty()) break;
+                payload.push_back(line);
+            }
+
             std::string arabicText;
-            std::string translationText;
+            std::vector<std::string> translationLines;
+            arabicText.reserve(128);
 
-            while (std::getline(file, line) && !line.empty()) {
-                if (arabicText.empty()) {
-                    arabicText = line;
+            std::optional<std::string> explicitKey;
+            std::optional<int> verseNumber;
+
+            for (const auto& payloadLine : payload) {
+                if (!explicitKey) {
+                    explicitKey = extract_explicit_verse_key(payloadLine);
+                }
+                if (!verseNumber) {
+                    verseNumber = extract_verse_number(payloadLine);
+                }
+
+                if (arabicText.empty() && contains_arabic_letters(payloadLine)) {
+                    arabicText = payloadLine;
+                } else if (arabicText.empty()) {
+                    arabicText = payloadLine;
                 } else {
-                    translationText += line + " ";
+                    translationLines.push_back(payloadLine);
                 }
             }
 
-            // Extract Arabic verse number
-            std::regex verse_regex(R"([٠-٩]+)");
-            std::smatch verse_match;
-            std::string verseNumArabic;
-
-            if (std::regex_search(arabicText, verse_match, verse_regex)) {
-                verseNumArabic = verse_match[0];
-            }
-
-            // Convert UTF-8 Arabic numerals to Western
-            std::string verseNumWestern;
-            for (size_t i = 0; i < verseNumArabic.size();) {
-                unsigned char c = verseNumArabic[i];
-                std::string utf8Char;
-                if ((c & 0x80) == 0) { // 1-byte
-                    utf8Char = verseNumArabic.substr(i, 1);
-                    i += 1;
-                } else if ((c & 0xE0) == 0xC0) { // 2-byte
-                    utf8Char = verseNumArabic.substr(i, 2);
-                    i += 2;
-                } else if ((c & 0xF0) == 0xE0) { // 3-byte
-                    utf8Char = verseNumArabic.substr(i, 3);
-                    i += 3;
-                } else { // 4-byte
-                    utf8Char = verseNumArabic.substr(i, 4);
-                    i += 4;
-                }
-
-                if (arabic_to_western.count(utf8Char)) {
-                    verseNumWestern += arabic_to_western[utf8Char];
+            std::string translationText;
+            for (size_t i = 0; i < translationLines.size(); ++i) {
+                translationText += translationLines[i];
+                if (i + 1 < translationLines.size()) {
+                    translationText += " ";
                 }
             }
 
-            int verseNum = verseNumWestern.empty() ? currentIndex : std::stoi(verseNumWestern);
-            std::string verseKey = "SURAH:" + std::to_string(verseNum);
+            int resolvedVerseNumber = verseNumber.value_or(currentIndex);
+            std::string verseKey = explicitKey.value_or("SURAH:" + std::to_string(resolvedVerseNumber));
 
             TimingEntry entry;
             entry.verseKey = verseKey;
             entry.startMs = timestampToMs(startTime);
             entry.endMs = timestampToMs(endTime);
             entry.text = arabicText;
+            entry.translation = translationText;
+            entry.verseNumber = resolvedVerseNumber;
+            entry.isBismillah = contains_bismillah_phrase(arabicText) ||
+                                contains_bismillah_phrase(translationText);
+            entry.sequentialIndex = ++sequentialIndex;
 
             timings[verseKey] = entry;
+            ordered.push_back(entry);
             currentIndex++;
         }
     }
 
-    std::cout << "Parsed " << timings.size() << " timing entries from file." << std::endl;
-    return timings;
+    for (const auto& entry : ordered) {
+        result.byVerseNumber[entry.verseNumber].push_back(entry);
+    }
+
+    std::cout << "Parsed " << ordered.size() << " timing entries from file." << std::endl;
+    return result;
 }
 
 } // namespace TimingParser

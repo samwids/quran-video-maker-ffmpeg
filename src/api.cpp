@@ -1,15 +1,21 @@
 #include "api.h"
 #include "quran_data.h"
 #include "timing_parser.h"
+#include "cache_utils.h"
+#include "recitation_utils.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <future>
 #include <nlohmann/json.hpp>
-#include <cpr/cpr.h>
 #include <filesystem>
 #include <iomanip>
-
+#include <algorithm>
+#include <chrono>
+#include <optional>
+#include <cstdlib>
+#include <limits>
+ 
 extern "C" {
 #include <libavformat/avformat.h>
 }
@@ -35,20 +41,131 @@ namespace {
         return duration;
     }
 
-    std::string strip_html_tags(const std::string& input) {
-        std::string output;
-        output.reserve(input.length());
-        bool in_tag = false;
-        for (char c : input) {
-            if (c == '<') {
-                in_tag = true;
-            } else if (c == '>') {
-                in_tag = false;
-            } else if (!in_tag) {
-                output += c;
+    fs::path make_temp_audio_path(const fs::path& baseDir, const std::string& prefix, const std::string& ext = ".m4a") {
+        auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        return baseDir / (prefix + "_" + std::to_string(stamp) + ext);
+    }
+
+    void run_ffmpeg_command(const std::string& cmd) {
+        int code = std::system(cmd.c_str());
+        if (code != 0) {
+            throw std::runtime_error("FFmpeg command failed: " + cmd);
+        }
+    }
+
+    fs::path trim_audio_segment(const std::string& source,
+                                double startSec,
+                                double endSec,
+                                const fs::path& audioDir,
+                                const std::string& label) {
+        fs::path output = make_temp_audio_path(audioDir, label);
+        std::ostringstream cmd;
+        cmd << "ffmpeg -y ";
+        if (startSec > 0.0) cmd << "-ss " << std::fixed << std::setprecision(3) << startSec << " ";
+        if (endSec > 0.0 && endSec > startSec) {
+            cmd << "-to " << std::fixed << std::setprecision(3) << endSec << " ";
+        }
+        cmd << "-i \"" << source << "\" -c copy \"" << output.string() << "\"";
+        run_ffmpeg_command(cmd.str());
+        return output;
+    }
+
+    fs::path concat_audio_segments(const std::vector<std::string>& segments,
+                                   const fs::path& audioDir,
+                                   const std::string& label) {
+        if (segments.empty()) {
+            throw std::runtime_error("No audio segments provided for concatenation.");
+        }
+        if (segments.size() == 1) {
+            return fs::path(segments.front());
+        }
+        fs::path output = make_temp_audio_path(audioDir, label);
+        std::ostringstream cmd;
+        cmd << "ffmpeg -y ";
+        for (const auto& segment : segments) {
+            cmd << "-i \"" << segment << "\" ";
+        }
+        cmd << "-filter_complex \"";
+        for (size_t i = 0; i < segments.size(); ++i) {
+            cmd << "[" << i << ":a]";
+        }
+        cmd << "concat=n=" << segments.size() << ":v=0:a=1[out]\" -map \"[out]\" \"" << output.string() << "\"";
+        run_ffmpeg_command(cmd.str());
+        return output;
+    }
+
+    void splice_custom_audio_range(std::vector<VerseData>& verses,
+                                   const CLIOptions& options,
+                                   const fs::path& audioDir) {
+        if (options.customAudioPath.empty() || options.from <= 1 || verses.empty()) return;
+
+        bool hasBism = !verses.empty() && verses.front().verseKey == "1:1";
+        double mainStartMs = std::numeric_limits<double>::max();
+        double mainEndMs = 0.0;
+        std::string customSourcePath;
+
+        for (const auto& verse : verses) {
+            if (!verse.fromCustomAudio) continue;
+            if (verse.verseKey == "1:1") continue;
+            mainStartMs = std::min(mainStartMs, static_cast<double>(verse.absoluteTimestampFromMs));
+            mainEndMs = std::max(mainEndMs, static_cast<double>(verse.absoluteTimestampToMs));
+            if (customSourcePath.empty()) customSourcePath = verse.sourceAudioPath;
+        }
+
+        if (!std::isfinite(mainStartMs) || customSourcePath.empty() || mainEndMs <= mainStartMs) {
+            return;
+        }
+
+        fs::path mainTrimmed = trim_audio_segment(customSourcePath,
+                                                  mainStartMs / 1000.0,
+                                                  mainEndMs / 1000.0,
+                                                  audioDir,
+                                                  "custom_main");
+
+        std::vector<std::string> concatSegments;
+        double bismDurationMs = 0.0;
+        if (hasBism) {
+            const auto& bismVerse = verses.front();
+            if (bismVerse.fromCustomAudio) {
+                fs::path bismTrimmed = trim_audio_segment(
+                    bismVerse.sourceAudioPath.empty() ? customSourcePath : bismVerse.sourceAudioPath,
+                    bismVerse.absoluteTimestampFromMs / 1000.0,
+                    bismVerse.absoluteTimestampToMs / 1000.0,
+                    audioDir,
+                    "custom_bism");
+                concatSegments.push_back(bismTrimmed.string());
+                bismDurationMs = bismVerse.absoluteTimestampToMs - bismVerse.absoluteTimestampFromMs;
+            } else {
+                concatSegments.push_back(bismVerse.sourceAudioPath.empty() ? bismVerse.localAudioPath
+                                                                          : bismVerse.sourceAudioPath);
+                bismDurationMs = bismVerse.durationInSeconds * 1000.0;
             }
         }
-        return output;
+
+        concatSegments.push_back(mainTrimmed.string());
+        fs::path finalAudio = concat_audio_segments(concatSegments, audioDir, "custom_splice");
+        double offsetMs = hasBism ? bismDurationMs : 0.0;
+
+        for (size_t i = 0; i < verses.size(); ++i) {
+            verses[i].localAudioPath = finalAudio.string();
+            verses[i].sourceAudioPath = finalAudio.string();
+            if (hasBism && i == 0) {
+                verses[i].timestampFromMs = 0;
+                verses[i].timestampToMs = static_cast<int>(bismDurationMs);
+                verses[i].durationInSeconds = bismDurationMs / 1000.0;
+                verses[i].absoluteTimestampFromMs = verses[i].timestampFromMs;
+                verses[i].absoluteTimestampToMs = verses[i].timestampToMs;
+                continue;
+            }
+            if (!verses[i].fromCustomAudio) continue;
+            double newStart = (verses[i].absoluteTimestampFromMs - mainStartMs) + offsetMs;
+            double newEnd = (verses[i].absoluteTimestampToMs - mainStartMs) + offsetMs;
+            verses[i].timestampFromMs = static_cast<int>(std::max(0.0, newStart));
+            verses[i].timestampToMs = static_cast<int>(std::max(newStart + 1.0, newEnd));
+            verses[i].durationInSeconds = (verses[i].timestampToMs - verses[i].timestampFromMs) / 1000.0;
+            verses[i].absoluteTimestampFromMs = verses[i].timestampFromMs;
+            verses[i].absoluteTimestampToMs = verses[i].timestampToMs;
+        }
     }
 
     // GAPPED MODE: Fetch individual ayah data
@@ -76,50 +193,50 @@ namespace {
         result.text = "";
 
         // Load translation
-        auto transIt = QuranData::translationFiles.find(config.translationId);
-        if (transIt == QuranData::translationFiles.end())
-            throw std::runtime_error("Unknown translationId: " + std::to_string(config.translationId));
-
         try {
-            std::ifstream tfile(transIt->second);
-            json translations = json::parse(tfile);
-            if (translations.contains(verseKey) && translations[verseKey].contains("t"))
-                result.translation = translations[verseKey]["t"].get<std::string>();
-            else
-                result.translation = "";
-        } catch (const json::exception& e) {
-            std::cerr << "Warning: Could not load translation for " << verseKey << ": " << e.what() << std::endl;
-            result.translation = "";
-        }
-
-        // Load audio metadata
-        auto recIt = QuranData::reciterFiles.find(config.reciterId);
-        if (recIt == QuranData::reciterFiles.end())
-            throw std::runtime_error("Unknown reciterId for gapped mode: " + std::to_string(config.reciterId));
-
-        try {
-            std::ifstream afile(recIt->second);
-            json audioData = json::parse(afile);
-            if (!audioData.contains(verseKey))
-                throw std::runtime_error("Verse not found in audio JSON: " + verseKey);
-
-            const auto& verseAudio = audioData[verseKey];
-            result.audioUrl = verseAudio.at("audio_url").get<std::string>();
+            result.translation = CacheUtils::getTranslationText(config.translationId, verseKey);
         } catch (const std::exception& e) {
-            throw std::runtime_error("Error loading audio metadata for " + verseKey + ": " + std::string(e.what()));
+            std::cerr << "Warning: Could not load translation for " << verseKey << ": " << e.what() << std::endl;
+            result.translation.clear();
         }
 
-        // Download audio
-        result.localAudioPath = (audioDir / (std::to_string(surah) + "_" + std::to_string(verseNum) + ".mp3")).string();
-        std::ofstream audioFile(result.localAudioPath, std::ios::binary);
-        cpr::Response audio_r = cpr::Download(audioFile, cpr::Url{result.audioUrl});
-        audioFile.close();
-        if (audio_r.status_code >= 400)
-            throw std::runtime_error("Failed to download audio for " + verseKey + " from " + result.audioUrl);
+        const json& audioData = CacheUtils::getReciterAudioData(config.reciterId);
+        auto verseAudioIt = audioData.find(verseKey);
+        if (verseAudioIt == audioData.end() || !verseAudioIt->is_object()) {
+            throw std::runtime_error("Verse not found in audio JSON: " + verseKey);
+        }
+        const auto& verseAudio = *verseAudioIt;
+        result.audioUrl = verseAudio.value("audio_url", "");
+        if (result.audioUrl.empty()) {
+            throw std::runtime_error("Audio URL missing for verse " + verseKey);
+        }
+
+        std::string sanitized = CacheUtils::sanitizeLabel(verseKey + "_r" + std::to_string(config.reciterId) + ".mp3");
+        fs::path audioPath = useCache ? CacheUtils::buildCachedAudioPath(sanitized)
+                                      : (audioDir / sanitized);
+        if (!useCache || !CacheUtils::fileIsValid(audioPath)) {
+            if (!CacheUtils::downloadFileWithRetry(result.audioUrl, audioPath)) {
+                throw std::runtime_error("Failed to download audio for " + verseKey + " from " + result.audioUrl);
+            }
+        }
+        result.localAudioPath = audioPath.string();
 
         result.durationInSeconds = get_audio_duration(result.localAudioPath);
-        if (result.durationInSeconds == 0.0)
+        if (result.durationInSeconds <= 0.0 && verseAudio.contains("duration") && !verseAudio["duration"].is_null()) {
+            try {
+                result.durationInSeconds = verseAudio["duration"].get<double>();
+            } catch (...) {
+                // ignore if unparsable
+            }
+        }
+        if (result.durationInSeconds <= 0.0) {
             std::cerr << "\nWarning: Could not determine duration for " << verseKey << ".\n";
+        }
+
+        result.absoluteTimestampFromMs = result.timestampFromMs;
+        result.absoluteTimestampToMs = result.timestampToMs;
+        result.fromCustomAudio = false;
+        result.sourceAudioPath = result.localAudioPath;
 
         // Save to cache
         if (useCache) {
@@ -137,18 +254,57 @@ namespace {
     }
 
     // GAPLESS MODE: Fetch verse data with timing from surah audio or custom source
-    std::vector<VerseData> fetch_verses_gapless(int surah, int from, int to, const AppConfig& config, bool useCache, const fs::path& audioDir, const CLIOptions& options) {
+    std::vector<VerseData> fetch_verses_gapless(int surah,
+                                                int from,
+                                                int to,
+                                                const AppConfig& config,
+                                                bool useCache,
+                                                const fs::path& audioDir,
+                                                const CLIOptions& options,
+                                                std::optional<TimingEntry>* customBismillahTiming = nullptr) {
         std::cout << "  - Using GAPLESS mode (surah-by-surah)" << std::endl;
         
         std::string localAudioPath;
         std::map<std::string, TimingEntry> timings;
+        std::vector<TimingEntry> sequentialTimings;
+        std::map<int, std::deque<TimingEntry>> verseBuckets;
+        std::optional<TimingEntry> detectedCustomBismillah;
         
         // Check if using custom recitation
         if (!options.customAudioPath.empty() && !options.customTimingFile.empty()) {
             std::cout << "  - Using CUSTOM recitation" << std::endl;
             
             // Parse timing file
-            timings = TimingParser::parseTimingFile(options.customTimingFile);
+            auto parsedTimings = TimingParser::parseTimingFile(options.customTimingFile);
+            timings = std::move(parsedTimings.byKey);
+            sequentialTimings = std::move(parsedTimings.ordered);
+            verseBuckets = std::move(parsedTimings.byVerseNumber);
+
+            auto remove_from_buckets = [&](const TimingEntry& entry) {
+                auto bucketIt = verseBuckets.find(entry.verseNumber);
+                if (bucketIt == verseBuckets.end()) return;
+                auto& dq = bucketIt->second;
+                for (auto it = dq.begin(); it != dq.end(); ++it) {
+                    if (it->sequentialIndex == entry.sequentialIndex) {
+                        dq.erase(it);
+                        break;
+                    }
+                }
+                if (dq.empty()) verseBuckets.erase(bucketIt);
+            };
+
+            for (auto it = sequentialTimings.begin(); it != sequentialTimings.end();) {
+                if (it->isBismillah) {
+                    if (!detectedCustomBismillah) {
+                        detectedCustomBismillah = *it;
+                    }
+                    timings.erase(it->verseKey);
+                    remove_from_buckets(*it);
+                    it = sequentialTimings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             
             // Download or copy audio file
             if (options.customAudioPath.find("http://") == 0 || options.customAudioPath.find("https://") == 0) {
@@ -156,11 +312,9 @@ namespace {
                 localAudioPath = (audioDir / ("custom_surah_" + std::to_string(surah) + ".mp3")).string();
                 if (!useCache || !fs::exists(localAudioPath)) {
                     std::cout << "  - Downloading custom audio from " << options.customAudioPath << std::endl;
-                    std::ofstream audioFile(localAudioPath, std::ios::binary);
-                    cpr::Response audio_r = cpr::Download(audioFile, cpr::Url{options.customAudioPath});
-                    audioFile.close();
-                    if (audio_r.status_code >= 400)
+                    if (!CacheUtils::downloadFileWithRetry(options.customAudioPath, localAudioPath)) {
                         throw std::runtime_error("Failed to download custom audio from " + options.customAudioPath);
+                    }
                 } else {
                     std::cout << "  - Using cached custom audio" << std::endl;
                 }
@@ -197,11 +351,9 @@ namespace {
             
             if (!useCache || !fs::exists(localAudioPath)) {
                 std::cout << "  - Downloading full surah audio from " << audioUrl << std::endl;
-                std::ofstream audioFile(localAudioPath, std::ios::binary);
-                cpr::Response audio_r = cpr::Download(audioFile, cpr::Url{audioUrl});
-                audioFile.close();
-                if (audio_r.status_code >= 400)
+                if (!CacheUtils::downloadFileWithRetry(audioUrl, localAudioPath)) {
                     throw std::runtime_error("Failed to download surah audio from " + audioUrl);
+                }
             } else {
                 std::cout << "  - Using cached surah audio" << std::endl;
             }
@@ -224,44 +376,107 @@ namespace {
             }
         }
 
-        // Load translations
-        auto transIt = QuranData::translationFiles.find(config.translationId);
-        if (transIt == QuranData::translationFiles.end())
-            throw std::runtime_error("Unknown translationId: " + std::to_string(config.translationId));
-        
-        std::ifstream tfile(transIt->second);
-        json translations = json::parse(tfile);
+        // Align sequential timings with requested starting verse if possible
+        if (!sequentialTimings.empty() && options.from > 1) {
+            auto startIt = std::find_if(sequentialTimings.begin(), sequentialTimings.end(),
+                [&](const TimingEntry& entry) { return entry.verseNumber == options.from; });
+            if (startIt != sequentialTimings.end()) {
+                sequentialTimings.erase(sequentialTimings.begin(), startIt);
+            } else if (sequentialTimings.size() > static_cast<size_t>(options.from - 1)) {
+                sequentialTimings.erase(sequentialTimings.begin(),
+                                        sequentialTimings.begin() + (options.from - 1));
+            }
+        }
 
-        // Build verse data
-        std::vector<VerseData> results;
-        for (int verseNum = from; verseNum <= to; ++verseNum) {
-            std::string verseKey = std::to_string(surah) + ":" + std::to_string(verseNum);
-            std::string timingKey = options.customTimingFile.empty() ? verseKey : ("SURAH:" + std::to_string(verseNum));
-            
-            if (!timings.count(verseKey) && !timings.count(timingKey))
-                throw std::runtime_error("Verse " + verseKey + " not found in timing data");
+        const json& translations = CacheUtils::getTranslationData(config.translationId);
 
-            const TimingEntry& timing = timings.count(verseKey) ? timings[verseKey] : timings[timingKey];
-            
+        auto buildVerseFromTiming = [&](const TimingEntry& timing) {
             VerseData verse;
-            verse.verseKey = verseKey;
-            verse.audioUrl = "";  // Not needed for gapless
-            verse.localAudioPath = localAudioPath;  // Same for all verses
+            std::string normalizedKey = timing.verseKey.rfind("SURAH:", 0) == 0
+                ? std::to_string(surah) + ":" + std::to_string(timing.verseNumber)
+                : timing.verseKey;
+            verse.verseKey = normalizedKey;
+            verse.audioUrl = "";
+            verse.localAudioPath = localAudioPath;
             verse.timestampFromMs = timing.startMs;
             verse.timestampToMs = timing.endMs;
             verse.durationInSeconds = (verse.timestampToMs - verse.timestampFromMs) / 1000.0;
-            
-            // Get translation
-            if (translations.contains(verseKey) && translations[verseKey].contains("t"))
-                verse.translation = translations[verseKey]["t"].get<std::string>();
-            else
+            verse.absoluteTimestampFromMs = verse.timestampFromMs;
+            verse.absoluteTimestampToMs = verse.timestampToMs;
+            verse.fromCustomAudio = !options.customAudioPath.empty();
+            verse.sourceAudioPath = localAudioPath;
+
+            auto transIt = translations.find(normalizedKey);
+            if (transIt != translations.end() && transIt->is_object()) {
+                auto textIt = transIt->find("t");
+                verse.translation = (textIt != transIt->end() && textIt->is_string())
+                    ? textIt->get<std::string>()
+                    : "";
+            } else {
                 verse.translation = "";
-            
-            verse.text = "";  // Will be filled later
-            
-            results.push_back(verse);
+            }
+            verse.text = "";
+            return verse;
+        };
+
+        std::vector<VerseData> results;
+        bool builtFromTimeline = false;
+        if (!options.customTimingFile.empty()) {
+            for (const auto& timing : sequentialTimings) {
+                if (timing.verseNumber >= from && timing.verseNumber <= to) {
+                    results.push_back(buildVerseFromTiming(timing));
+                    builtFromTimeline = true;
+                }
+            }
         }
 
+        if (!builtFromTimeline) {
+            size_t sequentialCursor = 0;
+            for (int verseNum = from; verseNum <= to; ++verseNum) {
+                std::string verseKey = std::to_string(surah) + ":" + std::to_string(verseNum);
+                std::string timingKey = options.customTimingFile.empty() ? verseKey : ("SURAH:" + std::to_string(verseNum));
+                
+                const TimingEntry* timingPtr = nullptr;
+                TimingEntry tempTiming;
+                bool usedSequentialFallback = false;
+                auto directIt = timings.find(verseKey);
+                if (directIt != timings.end()) {
+                    timingPtr = &directIt->second;
+                } else if (timings.count(timingKey)) {
+                    timingPtr = &timings[timingKey];
+                } else {
+                    auto bucketIt = verseBuckets.find(verseNum);
+                    if (bucketIt != verseBuckets.end() && !bucketIt->second.empty()) {
+                        tempTiming = bucketIt->second.front();
+                        bucketIt->second.pop_front();
+                        if (bucketIt->second.empty()) verseBuckets.erase(bucketIt);
+                        timingPtr = &tempTiming;
+                    } else if (!sequentialTimings.empty() && sequentialCursor < sequentialTimings.size()) {
+                        tempTiming = sequentialTimings[sequentialCursor];
+                        timingPtr = &tempTiming;
+                        usedSequentialFallback = true;
+                        std::cerr << "Warning: Verse " << verseKey
+                                  << " missing explicit timing entry; falling back to sequential ordering from custom timing file."
+                                  << std::endl;
+                    }
+                }
+
+                if (!timingPtr)
+                    throw std::runtime_error("Verse " + verseKey + " not found in timing data");
+
+                if (usedSequentialFallback) {
+                    sequentialCursor++;
+                }
+
+                results.push_back(buildVerseFromTiming(*timingPtr));
+            }
+        }
+
+        if (customBismillahTiming && detectedCustomBismillah) {
+            *customBismillahTiming = detectedCustomBismillah;
+        }
+
+        RecitationUtils::normalizeGaplessTimings(results);
         return results;
     }
 }
@@ -278,14 +493,17 @@ void pop_back_utf8(std::string& s) {
 std::vector<VerseData> API::fetchQuranData(const CLIOptions& options, const AppConfig& config) {
     std::cout << "Fetching data for Surah " << options.surah << ", verses " << options.from << "-" << options.to << "..." << std::endl;
     
-    fs::path audioDir = fs::temp_directory_path() / "quran_video_audio";
-    fs::create_directory(audioDir);
+    auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    fs::path audioDir = fs::temp_directory_path() / ("quran_video_audio_" + std::to_string(uniqueSuffix));
+    std::error_code ec;
+    fs::create_directories(audioDir, ec);
 
     std::vector<VerseData> results;
+    std::optional<TimingEntry> customBismillahTiming;
     
     // Choose mode based on config
     if (config.recitationMode == RecitationMode::GAPLESS) {
-        results = fetch_verses_gapless(options.surah, options.from, options.to, config, !options.noCache, audioDir, options);
+        results = fetch_verses_gapless(options.surah, options.from, options.to, config, !options.noCache, audioDir, options, &customBismillahTiming);
     } else {
         // GAPPED mode - parallel fetch
         std::vector<std::future<VerseData>> futures;
@@ -315,11 +533,13 @@ std::vector<VerseData> API::fetchQuranData(const CLIOptions& options, const AppC
     file >> quranData;
 
     // Add Bismillah if needed
-    // TODO: this has a major bug fix this so we get the audio from gapped for both cases, use a high quality default bismillah
     if (options.surah != 1 && options.surah != 9) {
-        if (config.recitationMode == RecitationMode::GAPLESS) {
-            // For gapless, we need special handling of Bismillah timing
-            auto bismillahVerses = fetch_verses_gapless(1, 1, 1, config, !options.noCache, audioDir, options);
+        if (config.recitationMode == RecitationMode::GAPLESS && customBismillahTiming && !options.customAudioPath.empty()) {
+            if (!results.empty()) {
+                results.insert(results.begin(), RecitationUtils::buildBismillahFromTiming(*customBismillahTiming, config, results.front().localAudioPath));
+            }
+        } else if (config.recitationMode == RecitationMode::GAPLESS) {
+            auto bismillahVerses = fetch_verses_gapless(1, 1, 1, config, !options.noCache, audioDir, options, nullptr);
             if (!bismillahVerses.empty()) {
                 results.insert(results.begin(), bismillahVerses[0]);
             }
@@ -357,6 +577,12 @@ std::vector<VerseData> API::fetchQuranData(const CLIOptions& options, const AppC
             results[0].text.pop_back();
             results[0].text.pop_back();
         }
+    }
+
+    if (config.recitationMode == RecitationMode::GAPLESS &&
+        !options.customAudioPath.empty() &&
+        options.from > 1) {
+        splice_custom_audio_range(results, options, audioDir);
     }
 
     return results;

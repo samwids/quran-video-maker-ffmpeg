@@ -22,9 +22,9 @@ Choose between gapped (ayah-by-ayah with pauses) or gapless (continuous surah) r
 - Basic gapless mode rendering
 - Audio caching for both modes
 - Mode switching via CLI
+- Resilient reciter download/caching shared across gapped and gapless workflows
 
 **TODOs:**
-- Fix reciter download failures in both modes (e.g. Muhammad Siddiq al-Minshawi for surah-by-surah)
 - Investigate and resolve timing precision issues with certain reciter data (e.g., Maher al-Muaiqly showing incorrect segments for Surah Al-Qadr).
 - Improve error messages for failed downloads
 
@@ -38,11 +38,11 @@ Use your own audio files with VTT/SRT timing files for complete flexibility.
 - Audio download from URLs
 - Local audio file support
 - Arabic numeral extraction from timing text
+- Consistent Bismillah insertion even with custom audio
+- Timing alignment survives reciters who rewind or repeat verses
+- Parser handles Arabic/non-Arabic numbering within subtitle files
 
 **TODOs:**
-- Fix Bismillah handling not working correctly with custom audio
-- Fix timing alignment issues between audio and text (e.g. reciter repeats verse or goes back a few verses and continues from there)
-- Fix parser to support both Arabic/non-Arabic subtitles including non-Arabic numbers
 - Improve VTT/SRT parser robustness and validation
 - Add validation of timing file completeness
 - Add support for verse ranges not starting at 1
@@ -74,9 +74,9 @@ Automatically adjusts font sizes based on verse length.
 - Basic adaptive sizing for Arabic text
 - Basic adaptive sizing for translation text
 - Different size thresholds for different verse lengths
+- Long verses automatically wrap across multiple lines so they stay on screen
 
 **TODOs:**
-- Fix text wrapping to the next line so it doesn't rewrap (happens when text grows and it disturbs the reading experience)
 - Implement size calculations to account for screen aspect ratio changes (current support is for landscape mode)
 - Implement better text sizing algorithm for short, medium, and longer verses(e.g., 2:282-283). Shorter verses take up more screen space and longer verses take up space such that they don't fall off the screen.
 

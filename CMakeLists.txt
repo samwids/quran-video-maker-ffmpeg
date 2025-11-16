@@ -41,15 +41,22 @@ pkg_check_modules(FREETYPE freetype2 REQUIRED)
 pkg_check_modules(HARFBUZZ harfbuzz REQUIRED)
 
 
-add_executable(quran-video-maker
-    src/main.cpp
+add_library(qvm_lib
     src/api.cpp src/api.h
     src/video_generator.cpp src/video_generator.h
     src/timing_parser.cpp src/timing_parser.h
+    src/config_loader.cpp src/config_loader.h
+    src/cache_utils.cpp src/cache_utils.h
+    src/recitation_utils.cpp src/recitation_utils.h
+    src/subtitle_builder.cpp src/subtitle_builder.h
+    src/localization_utils.cpp src/localization_utils.h
     src/types.h
 )
 
-target_include_directories(quran-video-maker PRIVATE
+add_executable(quran-video-maker src/main.cpp)
+
+target_include_directories(qvm_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${AVFORMAT_INCLUDE_DIRS}
     ${AVCODEC_INCLUDE_DIRS}
     ${AVFILTER_INCLUDE_DIRS}
@@ -59,7 +66,7 @@ target_include_directories(quran-video-maker PRIVATE
     ${HARFBUZZ_INCLUDE_DIRS}
 )
 
-target_link_libraries(quran-video-maker PRIVATE
+target_link_libraries(qvm_lib PUBLIC
     ${AVFORMAT_LIBRARIES}
     ${AVCODEC_LIBRARIES}
     ${AVFILTER_LIBRARIES}
@@ -72,6 +79,14 @@ target_link_libraries(quran-video-maker PRIVATE
     Threads::Threads
     cxxopts::cxxopts
 )
+
+target_link_libraries(quran-video-maker PRIVATE qvm_lib)
+
+add_executable(unit_tests tests/unit_tests.cpp)
+target_link_libraries(unit_tests PRIVATE qvm_lib)
+
+enable_testing()
+add_test(NAME unit COMMAND unit_tests WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.0)
     target_link_libraries(quran-video-maker PRIVATE stdc++fs)

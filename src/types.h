@@ -85,6 +85,12 @@ struct VerseData {
     int timestampFromMs;  // when this verse starts in the surah audio
     int timestampToMs;    // when this verse ends in the surah audio
     std::vector<WordSegment> wordSegments;  // word-level timing
+
+    // Original metadata to support custom audio adjustments
+    int absoluteTimestampFromMs = 0;
+    int absoluteTimestampToMs = 0;
+    bool fromCustomAudio = false;
+    std::string sourceAudioPath;
 };
 
 struct CLIOptions {
