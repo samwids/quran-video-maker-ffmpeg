@@ -123,6 +123,7 @@ struct CLIOptions {
     std::string encoder = "software";
     std::string recitationMode = "";  // "gapped" or "gapless"
     bool presetProvided = false;
+    bool emitProgress = false;
     
     // Custom recitation support (gapless only)
     std::string customAudioPath = "";     // Path or URL to audio file

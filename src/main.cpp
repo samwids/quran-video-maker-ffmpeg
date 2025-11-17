@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
         ("no-cache", "Disable caching", cxxopts::value<bool>()->default_value("false"))
         ("clear-cache", "Clear all cached data", cxxopts::value<bool>()->default_value("false"))
         ("no-growth", "Disable text growth animations", cxxopts::value<bool>()->default_value("false"))
+        ("progress", "Emit structured progress logs (PROGRESS ...)", cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
         ("bg-theme", "Background video theme (space, nature, abstract, minimal)", cxxopts::value<std::string>())
         ("custom-audio", "Custom audio file path or URL (gapless mode only)", cxxopts::value<std::string>())
         ("custom-timing", "Custom timing file (VTT or SRT format)", cxxopts::value<std::string>())
@@ -86,6 +87,7 @@ int main(int argc, char* argv[]) {
     options.presetProvided = result.count("preset");
     options.encoder = result["encoder"].as<std::string>();
     options.enableTextGrowth = !result["no-growth"].as<bool>();
+    options.emitProgress = result["progress"].as<bool>();
     if (result.count("text-padding")) options.textPaddingOverride = result["text-padding"].as<double>();
     if (result.count("quality-profile")) options.qualityProfile = result["quality-profile"].as<std::string>();
     if (result.count("crf")) options.customCRF = result["crf"].as<int>();

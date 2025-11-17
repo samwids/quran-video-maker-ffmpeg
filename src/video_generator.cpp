@@ -1,6 +1,8 @@
 #include "video_generator.h"
 #include "quran_data.h"
 #include "audio/custom_audio_processor.h"
+#include <chrono>
+#include <cstdio>
 #include <iostream>
 #include <stdexcept>
 #include <sstream>
@@ -11,6 +13,7 @@
 #include <iomanip>
 #include <limits>
 #include <algorithm>
+#include <cctype>
 #include "subtitle_builder.h"
 #include "localization_utils.h"
 
@@ -20,6 +23,130 @@ extern "C" {
 
 namespace fs = std::filesystem;
 
+#if defined(_WIN32)
+#define QVM_POPEN _popen
+#define QVM_PCLOSE _pclose
+#else
+#define QVM_POPEN popen
+#define QVM_PCLOSE pclose
+#endif
+
+namespace {
+
+std::string trim(const std::string& input) {
+    size_t start = 0;
+    while (start < input.size() && std::isspace(static_cast<unsigned char>(input[start]))) {
+        ++start;
+    }
+    if (start == input.size()) return "";
+    size_t end = input.size() - 1;
+    while (end > start && std::isspace(static_cast<unsigned char>(input[end]))) {
+        --end;
+    }
+    return input.substr(start, end - start + 1);
+}
+
+void emitProgressEvent(const std::string& stage,
+                       const std::string& status,
+                       double percent = -1.0,
+                       double elapsedSeconds = -1.0,
+                       double etaSeconds = -1.0,
+                       const std::string& message = "") {
+    std::ostringstream oss;
+    oss.setf(std::ios::fixed);
+    oss << std::setprecision(2);
+    oss << "PROGRESS {\"stage\":\"" << stage << "\",\"status\":\"" << status << "\"";
+    if (percent >= 0.0) oss << ",\"percent\":" << percent;
+    if (elapsedSeconds >= 0.0) oss << ",\"elapsedSeconds\":" << elapsedSeconds;
+    if (etaSeconds >= 0.0) oss << ",\"etaSeconds\":" << etaSeconds;
+    if (!message.empty()) oss << ",\"message\":\"" << message << "\"";
+    oss << "}";
+    std::cout << oss.str() << std::endl;
+}
+
+void emitStageMessage(const std::string& stage,
+                      const std::string& status,
+                      const std::string& message) {
+    emitProgressEvent(stage, status, -1.0, -1.0, -1.0, message);
+}
+
+double parseOutTimeValue(const std::string& value) {
+    try {
+        return std::stod(value) / 1000000.0;
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+void runCommandWithProgress(const std::string& command, double totalDurationSeconds) {
+    auto startTime = std::chrono::steady_clock::now();
+    emitProgressEvent("encoding", "running", 0.0, 0.0, -1.0, "FFmpeg started");
+
+    FILE* pipe = QVM_POPEN(command.c_str(), "r");
+    if (!pipe) {
+        emitProgressEvent("encoding", "failed", 0.0, 0.0, -1.0, "Failed to start FFmpeg");
+        throw std::runtime_error("Failed to start FFmpeg process");
+    }
+
+    char buffer[512];
+    double lastOutSeconds = 0.0;
+    double lastPercent = 0.0;
+    bool sawProgress = false;
+
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        std::string line = trim(buffer);
+        if (line.empty()) continue;
+        auto delimiter = line.find('=');
+        if (delimiter == std::string::npos) continue;
+        std::string key = trim(line.substr(0, delimiter));
+        std::string value = trim(line.substr(delimiter + 1));
+
+        if (key == "out_time_ms") {
+            lastOutSeconds = parseOutTimeValue(value);
+        } else if (key == "speed") {
+            // Parse speed for informational purposes if we want to expose it later.
+            continue;
+        } else if (key == "progress") {
+            sawProgress = true;
+            auto now = std::chrono::steady_clock::now();
+            double elapsed = std::chrono::duration<double>(now - startTime).count();
+            double percent = (totalDurationSeconds > 0.0)
+                ? std::clamp((lastOutSeconds / totalDurationSeconds) * 100.0, 0.0, 100.0)
+                : -1.0;
+            lastPercent = percent >= 0.0 ? percent : lastPercent;
+            double eta = -1.0;
+            if (percent > 0.0 && percent < 100.0) {
+                double ratio = percent / 100.0;
+                eta = elapsed * ((1.0 - ratio) / ratio);
+            } else if (percent >= 100.0) {
+                eta = 0.0;
+            }
+
+            const bool finished = (value == "end");
+            emitProgressEvent("encoding",
+                              finished ? "completed" : "running",
+                              percent,
+                              elapsed,
+                              eta,
+                              finished ? "Encoding complete" : "Encoding in progress");
+            if (finished) break;
+        }
+    }
+
+    int exitCode = QVM_PCLOSE(pipe);
+    if (exitCode != 0) {
+        emitProgressEvent("encoding", "failed", lastPercent, -1.0, -1.0, "FFmpeg exited with error");
+        throw std::runtime_error("FFmpeg execution failed");
+    }
+
+    if (!sawProgress) {
+        double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+        emitProgressEvent("encoding", "completed", 100.0, elapsed, 0.0, "Encoding complete");
+    }
+}
+
+} // namespace
+
 void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& config, const std::vector<VerseData>& verses) {
     try {
         std::cout << "\n=== Starting Video Rendering ===" << std::endl;
@@ -28,7 +155,9 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
         double pause_after_intro_duration = config.pauseAfterIntroDuration;
         
         std::cout << "Generating subtitles..." << std::endl;
+        if (options.emitProgress) emitStageMessage("subtitles", "running", "Generating subtitles");
         std::string ass_filename = SubtitleBuilder::buildAssFile(config, options, verses, intro_duration, pause_after_intro_duration);
+        if (options.emitProgress) emitStageMessage("subtitles", "completed", "Subtitles generated");
 
         double verses_duration = 0.0;
         double minTimestampSec = std::numeric_limits<double>::infinity();
@@ -86,6 +215,11 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
         }
 
         std::stringstream final_cmd;
+        final_cmd << "ffmpeg ";
+        if (options.emitProgress) {
+            final_cmd << "-progress pipe:1 -nostats -loglevel warning ";
+        }
+        final_cmd << "-y ";
         
         // Handle audio differently for gapped vs gapless
         if (config.recitationMode == RecitationMode::GAPLESS) {
@@ -112,7 +246,7 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
                 : measuredAudioDuration;
             total_duration = intro_duration + pause_after_intro_duration + audioDuration;
             
-            final_cmd << "ffmpeg -y "
+            final_cmd
                       << "-stream_loop -1 -i \"" << config.assetBgVideo << "\" "
                       << "-f lavfi -t " << (intro_duration + pause_after_intro_duration) << " -i anullsrc=r=44100:cl=stereo ";
             if (!customClip) {
@@ -144,8 +278,9 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
             
             double totalVideoDuration = intro_duration + pause_after_intro_duration;
             for(const auto& verse : verses) totalVideoDuration += verse.durationInSeconds;
+            total_duration = totalVideoDuration;
             
-            final_cmd << "ffmpeg -y "
+            final_cmd
                       << "-i \"" << config.assetBgVideo << "\" "
                       << "-itsoffset " << (intro_duration + pause_after_intro_duration) << " "
                       << "-f concat -safe 0 -i \"" << concat_file_path << "\" "
@@ -163,8 +298,12 @@ void VideoGenerator::generateVideo(const CLIOptions& options, const AppConfig& c
 
         std::cout << "\nExecuting FFmpeg command:\n" << final_cmd.str() << std::endl << std::endl;
         
-        int exit_code = system(final_cmd.str().c_str());
-        if (exit_code != 0) throw std::runtime_error("FFmpeg execution failed");
+        if (options.emitProgress) {
+            runCommandWithProgress(final_cmd.str(), total_duration);
+        } else {
+            int exit_code = system(final_cmd.str().c_str());
+            if (exit_code != 0) throw std::runtime_error("FFmpeg execution failed");
+        }
 
         std::cout << "\n✅ Render complete! Video saved to: " << options.output << std::endl;
 
