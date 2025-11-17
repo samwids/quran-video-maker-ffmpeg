@@ -39,16 +39,30 @@ git clone https://github.com/ashaltu/quran-video-maker-ffmpeg.git
 cd quran-video-maker-ffmpeg
 ```
 
-### 2. Extract Test Data
+### 2. Fetch and Extract Test Data
 
-Extract the mini data archive for testing:
+This project uses Git LFS for large test data files.  
+If this is your first time using Git LFS on this machine, run:
+
+```bash
+git lfs install
+````
+
+Then fetch the actual data file (the `data.tar` in the repo is just a small LFS pointer):
+
+```bash
+git lfs pull
+```
+
+Now extract the test data:
 
 ```bash
 tar -xvf data.tar
 unzip 'data/*.zip' -d data
 rm data/*.zip
 
-# The original data.tar remains, but you can delete that too with `rm data.tar`
+# You may remove the original archive if you like:
+# rm data.tar
 ```
 
 This contains a subset of Quranic data (audio, translations, scripts) needed for local development and testing. For production use or additional resources, visit the [QUL Resources page](https://qul.tarteel.ai/resources/).
