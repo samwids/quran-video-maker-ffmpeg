@@ -38,7 +38,7 @@ jobs:
     - name: Test
       run: |
         cd "$BUILD_DIR"
-        ctest --build-config "$BUILD_TYPE"
+        ctest --build-config "$BUILD_TYPE" --rerun-failed --output-on-failure
 
 
   build-macos:
@@ -69,4 +69,4 @@ jobs:
     - name: Test
       run: |
         cd "$BUILD_DIR"
-        ctest --build-config "$BUILD_TYPE"
+        ctest --build-config "$BUILD_TYPE" --rerun-failed --output-on-failure
