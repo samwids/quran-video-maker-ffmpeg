@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <filesystem>
+#include <vector>
 #include "cxxopts.hpp"
 
 #include "types.h"
@@ -8,10 +9,12 @@
 #include "video_generator.h"
 #include "quran_data.h"
 #include "config_loader.h"
+#include "metadata_writer.h"
 
 namespace fs = std::filesystem;
 
 int main(int argc, char* argv[]) {
+    std::vector<std::string> invocationArgs(argv, argv + argc);
     cxxopts::Options cli_parser("QuranVideoMaker", "Generates Quran videos using FFmpeg");
     // TODO: fix so default values removed and values read from config instead
     cli_parser.add_options()
@@ -162,6 +165,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Text growth: " << (config.enableTextGrowth ? "enabled" : "disabled") << std::endl;
 
         auto verses = API::fetchQuranData(options, config);
+        MetadataWriter::writeMetadata(options, config, invocationArgs);
         VideoGenerator::generateVideo(options, config, verses);
         VideoGenerator::generateThumbnail(options, config);
 
