@@ -1,0 +1,89 @@
+name: CMake on multiple platforms
+
+on:
+  push:
+    branches: [ $default-branch ]
+  pull_request:
+    branches: [ $default-branch ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]
+        include:
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+        exclude:
+          - os: windows-latest
+            c_compiler: gcc
+          - os: windows-latest
+            c_compiler: clang
+          - os: ubuntu-latest
+            c_compiler: cl
+          - os: macos-latest
+            c_compiler: cl
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # Linux-only: install FFmpeg dev packages
+    - name: Install FFmpeg dev packages (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libavformat-dev libavcodec-dev libavfilter-dev \
+          libavutil-dev libswscale-dev \
+          libfreetype6-dev libharfbuzz-dev
+
+    # macOS-only: install FFmpeg dependencies
+    - name: Install FFmpeg deps (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew update
+        brew install ffmpeg freetype harfbuzz || true
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    # On non-Linux, FFmpeg pkgconfig fails. Continue gracefully.
+    - name: Configure CMake
+      id: configure
+      continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -S ${{ github.workspace }}
+
+    # Only build if CMake succeeded
+    - name: Build
+      if: steps.configure.outcome != 'failure'
+      id: build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+
+    # Only run tests on Linux because only Linux has real FFmpeg dev
+    - name: Test (Linux only)
+      if: matrix.os == 'ubuntu-latest' && steps.build.outcome != 'failure'
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }}
