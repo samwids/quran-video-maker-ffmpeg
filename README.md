@@ -157,6 +157,7 @@ You can override any individual quality parameter via CLI (`--quality-profile`, 
 | `--no-cache` | Disable caching | false |
 | `--clear-cache` | Clear all cached data | false |
 | `--no-growth` | Disable text growth animations | false |
+| `--progress` | Emit `PROGRESS {...}` logs for machine-readable status | false |
 | `--custom-audio` | Custom audio file path or URL (gapless only) | - |
 | `--custom-timing` | Custom timing file (VTT or SRT, required with custom audio) | - |
 | `--text-padding` | Override horizontal padding fraction (0-0.45) applied to both languages | From config (default 0.05) |
@@ -166,6 +167,26 @@ You can override any individual quality parameter via CLI (`--quality-profile`, 
 #### Quality Profiles
 
 `config.json` now exposes a `qualityProfiles` object where you can describe presets for `speed`, `balanced`, `max`, or any custom label you invent. Each entry can override `preset`, `crf`, `pixelFormat`, and the optional bitrate knobs. The CLI flag `--quality-profile` simply picks one of those blocks (default: `balanced`) and still allows overriding individual values via `--preset`, `--crf`, `--pix-fmt`, `--video-bitrate`, `--maxrate`, and `--bufsize`.
+
+### Render Metadata Sidecar
+
+Every render writes a JSON sidecar next to the video (e.g., `out/surah-1_1-7.metadata.json`). It captures:
+
+- The exact CLI invocation (`argv`, shell-quoted string, binary path, working directory)
+- Absolute paths for outputs, config, assets, and any custom audio/timing files
+- A copy of the config file contents plus size/modified timestamp for reproducibility
+
+Use it as an audit trail for automation pipelines or to compare settings across runs. New CLI/config knobs automatically show up in the metadata because the writer preserves the raw config artifact.
+
+### Progress Monitoring
+
+Pass `--progress` to emit deterministic log lines that start with `PROGRESS ` followed by JSON:
+
+```
+PROGRESS {"stage":"encoding","status":"running","percent":37.50,"elapsedSeconds":12.4,"etaSeconds":20.6,"message":"Encoding in progress"}
+```
+
+The default behavior remains unchanged; you only see these structured lines when `--progress` is supplied. They’re designed for job runners (Express workers, queues, etc.) to parse and forward to clients. Additional stages (e.g., subtitle generation) also announce when they start/finish.
 
 ### Localization Assets
 

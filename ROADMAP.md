@@ -13,7 +13,7 @@ Basic unit tests now cover config loading, timing parsing, recitation utilities,
 ## Core Features (In Progress)
 
 ### Multiple Recitation Modes
-**Status:** 🟡 Partially Stable
+**Status:** 🔴 Highly Experimental (currently disabled)
 
 Choose between gapped (ayah-by-ayah with pauses) or gapless (continuous surah) recitation.
 
@@ -29,7 +29,7 @@ Choose between gapped (ayah-by-ayah with pauses) or gapless (continuous surah) r
 - Improve error messages for failed downloads
 
 ### Custom Recitations
-**Status:** 🔴 Highly Experimental
+**Status:** 🟡 Partially Stable
 
 Use your own audio files with VTT/SRT timing files for complete flexibility.
 
@@ -50,7 +50,7 @@ Use your own audio files with VTT/SRT timing files for complete flexibility.
 - Add CLI flag to disable automatic Bismillah insertion
 
 ### Multi-language Support
-**Status:** 🟡 Partially Stable
+**Status:** 🟢 Stable
 
 Generate videos with translations in multiple languages.
 
@@ -115,6 +115,16 @@ Automatically creates thumbnails with video metadata.
 - Add customizable layouts
 - Create separate thumbnail generation command
 
+### Render Metadata & Provenance
+**Status:** 🟢 Stable
+
+Each render now produces a `<output>.metadata.json` sidecar that records the exact CLI invocation, absolute asset/config paths, and a copy of the config file used for the run.
+
+### Progress Reporting
+**Status:** 🟢 Stable
+
+Structured `PROGRESS {...}` lines can be enabled via `--progress`, making it easy for queue workers (Express, Celery, etc.) to stream status/ETA updates without scraping free-form logs.
+
 ### Hardware Acceleration
 **Status:** 🟡 Platform-Dependent (most likely to be deprecated)
 
@@ -163,7 +173,6 @@ Downloads and caches audio files for reuse across multiple renders.
 - Full Surah Automation(not started):
   - Implement automatic verse range detection (as opposed to specifying from/to)
   - Add batch rendering for multiple surahs (should be a list or an inclusive range like 110-114)
-  - Add progress tracking for long renders
 
 ## Contributing
 
