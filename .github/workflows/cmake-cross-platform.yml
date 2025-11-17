@@ -2,11 +2,9 @@ name: CMake (Linux + macOS)
 
 on:
   push:
-    branches:
-      - ${{ github.default_branch }}
+    branches: [ main ]
   pull_request:
-    branches:
-      - ${{ github.default_branch }}
+    branches: [ main ]
   workflow_dispatch:
 
 env:
