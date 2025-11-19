@@ -13,13 +13,15 @@ namespace QuranData {
         {1, "fonts/American Captain.ttf"},      // English - Sahih International
         {2, "fonts/American Captain.ttf"},      // Oromo (Latin script)
         {3, "fonts/AbyssinicaSIL-Regular.ttf"}, // Amharic
+        {4, "fonts/Jameel Noori Nastaleeq Kasheeda.ttf"} // Urdu
         // Add more language mappings as needed
     };
 
     inline const std::map<int, std::string> translationFontFamilies = {
         {1, "American Captain"},
         {2, "American Captain"},
-        {3, "Abyssinica SIL"}
+        {3, "Abyssinica SIL"},
+        {4, "Jameel Noori Nastaleeq"}
     };
     
     // Background video themes
@@ -170,14 +172,16 @@ namespace QuranData {
     inline const std::map<int, std::string> translationFiles = {
         {1, "data/translations/en/en-sahih-international-clean.json"},
         {2, "data/translations/om/ghali-apapur-apaghuna-clean.json"},
-        {3, "data/translations/amh/am-sadiq-simple.json"}
+        {3, "data/translations/amh/am-sadiq-simple.json"},
+        {4, "data/translations/urd/ur-fatah-muhammad-jalandhari-simple.json"}
     };
     
     // Language names for translation IDs
     inline const std::map<int, std::string> translationLanguages = {
         {1, "en"},
         {2, "om"},
-        {3, "amh"}
+        {3, "amh"},
+        {4, "urd"}
     };
 
     // Here as fallback
