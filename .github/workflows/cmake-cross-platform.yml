@@ -32,9 +32,8 @@ jobs:
       uses: actions/cache@v4
       with:
         path: build
-        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}-${{ hashFiles('**/*.cpp', '**/*.h') }}
+        key: ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt', 'src/**') }}
         restore-keys: |
-          ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}-
           ${{ runner.os }}-cmake-
 
     - name: Configure CMake
@@ -72,9 +71,8 @@ jobs:
       uses: actions/cache@v4
       with:
         path: build
-        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}-${{ hashFiles('**/*.cpp', '**/*.h') }}
+        key: ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt', 'src/**') }}
         restore-keys: |
-          ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt') }}-
           ${{ runner.os }}-cmake-
 
     - name: Export FFmpeg pkgconfig paths (macOS)
