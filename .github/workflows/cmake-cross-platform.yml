@@ -20,18 +20,29 @@ jobs:
       with:
         lfs: true
 
-    - name: Install FFmpeg dev packages
+    - name: Install build deps
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           libavformat-dev libavcodec-dev libavfilter-dev \
           libavutil-dev libswscale-dev \
-          libfreetype6-dev libharfbuzz-dev
+          libfreetype6-dev libharfbuzz-dev \
+          ccache
+
+    - name: Setup ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
 
     - name: Configure CMake
       run: >
         cmake -B $BUILD_DIR
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         -S ${{ github.workspace }}
 
     - name: Build
@@ -57,7 +68,15 @@ jobs:
     - name: Install FFmpeg dependencies
       run: |
         brew update
-        brew install ffmpeg freetype harfbuzz
+        brew install ffmpeg freetype harfbuzz ccache
+
+    - name: Setup ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
 
     - name: Export FFmpeg pkgconfig paths (macOS)
       run: |
@@ -68,6 +87,8 @@ jobs:
       run: >
         cmake -B $BUILD_DIR
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         -S ${{ github.workspace }}
 
     - name: Build
