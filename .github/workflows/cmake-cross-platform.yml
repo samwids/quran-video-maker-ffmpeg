@@ -29,6 +29,9 @@ jobs:
           libfreetype6-dev libharfbuzz-dev \
           ccache
 
+    - name: Prepare ccache directory
+      run: mkdir -p ~/.ccache
+
     - name: Setup ccache
       uses: actions/cache@v4
       with:
@@ -69,6 +72,9 @@ jobs:
       run: |
         brew update
         brew install ffmpeg freetype harfbuzz ccache
+
+    - name: Prepare ccache directory
+      run: mkdir -p ~/.ccache
 
     - name: Setup ccache
       uses: actions/cache@v4
