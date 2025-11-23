@@ -145,8 +145,13 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
         }
     }
 
+    // Normalize and store the resolved config path so downstream consumers (e.g. metadata)
+    // report the actual file that was loaded, including auto-discovery fallbacks.
+    configPath = fs::absolute(configPath);
+    options.configPath = configPath.string();
+
     // Resolve assets relative to config file location
-    fs::path configDir = fs::absolute(configPath).parent_path();
+    fs::path configDir = configPath.parent_path();
     CacheUtils::setDataRoot(configDir);
 
     std::ifstream f(configPath);
