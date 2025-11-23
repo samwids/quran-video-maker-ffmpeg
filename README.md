@@ -21,9 +21,9 @@
 
 The tool supports both gapped (ayah-by-ayah) and gapless (continuous) workflows. Custom recitations can be supplied via `--custom-audio` and `--custom-timing`.
 
-## Installation
+## Installing
 
-### Install with `brew`
+### With Homebrew
 
 ```bash
 brew install ashaltu/tap/qvm
@@ -32,7 +32,9 @@ qvm --help
 qvm 1 1 7 # Generates video for the entire Surah Fatiha
 ```
 
-### Prerequisites
+### Manually
+
+#### Prerequisites
 
 - **C++ Compiler**: Supporting C++17 or later
 - **CMake**: Version 3.16 or higher
@@ -41,14 +43,14 @@ qvm 1 1 7 # Generates video for the entire Surah Fatiha
 - **HarfBuzz**: For text shaping (especially important for Arabic)
 - **System Libraries**: PkgConfig, Threads
 
-### 1. Clone the Repository
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/ashaltu/quran-video-maker-ffmpeg.git
 cd quran-video-maker-ffmpeg
 ```
 
-### 2. Fetch and Extract Test Data
+#### 2. Fetch and Extract Test Data
 
 This project uses Git LFS for large test data files.  
 If this is your first time using Git LFS on this machine, run:
@@ -76,14 +78,14 @@ rm data/*.zip
 
 This contains a subset of Quranic data (audio, translations, scripts) needed for local development and testing. For production use or additional resources, visit the [QUL Resources page](https://qul.tarteel.ai/resources/).
 
-### 3. Install System Dependencies
+#### 3. Install System Dependencies
 
 **macOS:**
 ```bash
 brew install cmake pkg-config ffmpeg freetype harfbuzz
 ```
 
-**Ubuntu/Debian(UNTESTED):**
+**Ubuntu/Debian:**
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
@@ -93,7 +95,7 @@ sudo apt-get install -y \
   libfreetype6-dev libharfbuzz-dev
 ```
 
-### 4. Build the Project
+#### 4. Build the Project
 
 ```bash
 mkdir build && cd build
@@ -104,7 +106,7 @@ cd ..
 
 The executable will be available at `./build/quran-video-maker`.
 
-### 5. Run Unit Tests
+#### 5. Run Unit Tests
 
 ```bash
 cd build
@@ -114,7 +116,7 @@ cd ..
 
 The tests exercise config loading, timing parsing, recitation utilities, subtitle generation helpers, the text layout engine, and the custom audio splicer plan builder. Please run them before submitting changes.
 
-## Quick Start
+#### 6. Create video
 
 Please check the the `/out` folder after these commands are run.
 
