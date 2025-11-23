@@ -10,6 +10,7 @@
 #include "quran_data.h"
 #include "config_loader.h"
 #include "metadata_writer.h"
+#include "cache_utils.h"
 
 namespace fs = std::filesystem;
 
@@ -135,9 +136,10 @@ int main(int argc, char* argv[]) {
     }
     
     try {
-        if (options.clearCache && fs::exists(".cache")) {
+        fs::path cacheDir = CacheUtils::getCacheRoot();
+        if (options.clearCache && fs::exists(cacheDir)) {
             std::cout << "Clearing cache..." << std::endl;
-            fs::remove_all(".cache");
+            fs::remove_all(cacheDir);
         }
         
         AppConfig config = loadConfig(options.configPath, options);

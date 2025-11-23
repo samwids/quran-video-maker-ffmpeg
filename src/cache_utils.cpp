@@ -6,6 +6,7 @@
 #include <cctype>
 #include <stdexcept>
 #include <system_error>
+#include <cstdlib>
 #include <chrono>
 #include <thread>
 #include <cpr/cpr.h>
@@ -14,8 +15,50 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace {
-    const fs::path kCacheRoot = fs::path(".cache");
-    const fs::path kAudioCacheDir = kCacheRoot / "audio";
+    fs::path initialDataRoot() {
+        const char* envDataRoot = std::getenv("QVM_DATA_ROOT");
+        if (envDataRoot && *envDataRoot) {
+            return fs::path(envDataRoot);
+        }
+        return fs::current_path();
+    }
+
+    fs::path dataRoot = initialDataRoot();
+
+    fs::path determineDefaultCacheRoot() {
+        const char* envCache = std::getenv("QVM_CACHE_DIR");
+        if (envCache && *envCache) {
+            return fs::path(envCache);
+        }
+
+#ifdef _WIN32
+        const char* localAppData = std::getenv("LOCALAPPDATA");
+        if (localAppData && *localAppData) {
+            return fs::path(localAppData) / "quran-video-maker";
+        }
+        const char* appData = std::getenv("APPDATA");
+        if (appData && *appData) {
+            return fs::path(appData) / "quran-video-maker";
+        }
+#elif __APPLE__
+        const char* home = std::getenv("HOME");
+        if (home && *home) {
+            return fs::path(home) / "Library" / "Caches" / "quran-video-maker";
+        }
+#else
+        const char* xdg = std::getenv("XDG_CACHE_HOME");
+        if (xdg && *xdg) {
+            return fs::path(xdg) / "quran-video-maker";
+        }
+        const char* home = std::getenv("HOME");
+        if (home && *home) {
+            return fs::path(home) / ".cache" / "quran-video-maker";
+        }
+#endif
+        return fs::temp_directory_path() / "quran-video-maker-cache";
+    }
+
+    fs::path cacheRoot = determineDefaultCacheRoot();
 
     std::mutex translationCacheMutex;
     std::unordered_map<int, json> translationCache;
@@ -31,6 +74,41 @@ namespace {
     }
 }
 
+void CacheUtils::setDataRoot(const fs::path& root) {
+    if (root.empty()) return;
+    std::error_code ec;
+    fs::path resolved = fs::canonical(root, ec);
+    if (ec) {
+        resolved = fs::absolute(root, ec);
+    }
+    if (!resolved.empty()) {
+        dataRoot = resolved;
+    }
+}
+
+fs::path CacheUtils::getDataRoot() {
+    return dataRoot;
+}
+
+fs::path CacheUtils::resolveDataPath(const fs::path& relativePath) {
+    fs::path path(relativePath);
+    if (path.is_absolute()) {
+        return path;
+    }
+    return dataRoot / path;
+}
+
+void CacheUtils::setCacheRoot(const fs::path& root) {
+    if (root.empty()) return;
+    std::error_code ec;
+    fs::path resolved = fs::absolute(root, ec);
+    cacheRoot = ec ? root : resolved;
+}
+
+fs::path CacheUtils::getCacheRoot() {
+    return cacheRoot;
+}
+
 const json& CacheUtils::getTranslationData(int translationId) {
     std::lock_guard<std::mutex> lock(translationCacheMutex);
     auto it = translationCache.find(translationId);
@@ -39,9 +117,10 @@ const json& CacheUtils::getTranslationData(int translationId) {
         if (fileIt == QuranData::translationFiles.end()) {
             throw std::runtime_error("Unknown translationId: " + std::to_string(translationId));
         }
-        std::ifstream file(fileIt->second);
+        fs::path translationPath = resolveDataPath(fileIt->second);
+        std::ifstream file(translationPath);
         if (!file.is_open()) {
-            throw std::runtime_error("Failed to open translation file: " + fileIt->second);
+            throw std::runtime_error("Failed to open translation file: " + translationPath.string());
         }
         json data = json::parse(file, nullptr, true, true);
         it = translationCache.emplace(translationId, std::move(data)).first;
@@ -69,9 +148,10 @@ const json& CacheUtils::getReciterAudioData(int reciterId) {
         if (recIt == QuranData::reciterFiles.end()) {
             throw std::runtime_error("Unknown reciterId for gapped mode: " + std::to_string(reciterId));
         }
-        std::ifstream file(recIt->second);
+        fs::path metadataPath = resolveDataPath(recIt->second);
+        std::ifstream file(metadataPath);
         if (!file.is_open()) {
-            throw std::runtime_error("Failed to open reciter metadata file: " + recIt->second);
+            throw std::runtime_error("Failed to open reciter metadata file: " + metadataPath.string());
         }
         json data = json::parse(file, nullptr, true, true);
         it = reciterAudioCache.emplace(reciterId, std::move(data)).first;
@@ -81,8 +161,9 @@ const json& CacheUtils::getReciterAudioData(int reciterId) {
 
 fs::path CacheUtils::buildCachedAudioPath(const std::string& label) {
     std::error_code ec;
-    fs::create_directories(kAudioCacheDir, ec);
-    return kAudioCacheDir / label;
+    fs::path audioDir = cacheRoot / "audio";
+    fs::create_directories(audioDir, ec);
+    return audioDir / label;
 }
 
 bool CacheUtils::fileIsValid(const fs::path& path) {

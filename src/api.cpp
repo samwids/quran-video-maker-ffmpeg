@@ -24,7 +24,7 @@ using json = nlohmann::json;
     // GAPPED MODE: Fetch individual ayah data
     VerseData fetch_single_verse_gapped(int surah, int verseNum, const AppConfig& config, bool useCache, const fs::path& audioDir) {
         std::string verseKey = std::to_string(surah) + ":" + std::to_string(verseNum);
-        fs::path cachePath = fs::path(".cache") / (verseKey + "_r" + std::to_string(config.reciterId) + "_t" + std::to_string(config.translationId) + "_gapped.json");
+        fs::path cachePath = CacheUtils::getCacheRoot() / (verseKey + "_r" + std::to_string(config.reciterId) + "_t" + std::to_string(config.translationId) + "_gapped.json");
 
         if (useCache && fs::exists(cachePath)) {
             try {
@@ -93,7 +93,7 @@ using json = nlohmann::json;
 
         // Save to cache
         if (useCache) {
-            fs::create_directories(".cache");
+            fs::create_directories(CacheUtils::getCacheRoot());
             json cacheData = {
                 {"verseKey", result.verseKey}, {"text", result.text}, {"translation", result.translation},
                 {"audioUrl", result.audioUrl}, {"durationInSeconds", result.durationInSeconds},
@@ -183,12 +183,12 @@ using json = nlohmann::json;
             if (recDirIt == QuranData::gaplessReciterDirs.end())
                 throw std::runtime_error("Reciter ID " + std::to_string(config.reciterId) + " not available for gapless mode");
 
-            std::string reciterDir = recDirIt->second;
-            fs::path surahJsonPath = fs::path(reciterDir) / "surah.json";
-            fs::path segmentsJsonPath = fs::path(reciterDir) / "segments.json";
+            fs::path reciterDir = CacheUtils::resolveDataPath(recDirIt->second);
+            fs::path surahJsonPath = reciterDir / "surah.json";
+            fs::path segmentsJsonPath = reciterDir / "segments.json";
 
             if (!fs::exists(surahJsonPath) || !fs::exists(segmentsJsonPath))
-                throw std::runtime_error("Missing surah.json or segments.json for reciter in " + reciterDir);
+                throw std::runtime_error("Missing surah.json or segments.json for reciter in " + reciterDir.string());
 
             // Load surah metadata (audio URL)
             std::ifstream surahFile(surahJsonPath);

@@ -1,5 +1,6 @@
 #include "config_loader.h"
 #include "quran_data.h"
+#include "cache_utils.h"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
@@ -144,11 +145,12 @@ AppConfig loadConfig(const std::string& path, CLIOptions& options) {
         }
     }
 
-    std::ifstream f(configPath);
-    if (!f.is_open()) throw std::runtime_error("Could not open config file: " + configPath.string());
-    
     // Resolve assets relative to config file location
     fs::path configDir = fs::absolute(configPath).parent_path();
+    CacheUtils::setDataRoot(configDir);
+
+    std::ifstream f(configPath);
+    if (!f.is_open()) throw std::runtime_error("Could not open config file: " + configPath.string());
     auto resolvePath = [&](std::string p) {
         if (p.empty()) return p;
         fs::path fp = p;

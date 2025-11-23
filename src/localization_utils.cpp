@@ -1,5 +1,6 @@
 #include "localization_utils.h"
 #include "quran_data.h"
+#include "cache_utils.h"
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -28,7 +29,7 @@ std::string getLanguageCode(const AppConfig& config) {
 }
 
 std::string getLocalizedSurahName(int surah, const std::string& lang_code) {
-    fs::path path = fs::path("data/surah-names") / (lang_code + ".json");
+    fs::path path = CacheUtils::resolveDataPath(fs::path("data/surah-names") / (lang_code + ".json"));
     json data = load_json_file(path);
     std::string key = std::to_string(surah);
     if (data.is_object()) {
@@ -41,7 +42,7 @@ std::string getLocalizedSurahName(int surah, const std::string& lang_code) {
 }
 
 std::string getLocalizedReciterName(int reciterId, const std::string& lang_code) {
-    fs::path path = fs::path("data/reciter-names") / (lang_code + ".json");
+    fs::path path = CacheUtils::resolveDataPath(fs::path("data/reciter-names") / (lang_code + ".json"));
     json data = load_json_file(path);
     std::string key = std::to_string(reciterId);
     if (data.is_object()) {
@@ -54,7 +55,7 @@ std::string getLocalizedReciterName(int reciterId, const std::string& lang_code)
 }
 
 std::string getLocalizedSurahLabel(const std::string& lang_code) {
-    json data = load_json_file("data/misc/surah.json");
+    json data = load_json_file(CacheUtils::resolveDataPath("data/misc/surah.json"));
     if (data.is_object()) {
         auto it = data.find(lang_code);
         if (it != data.end() && it->is_string()) {
@@ -69,7 +70,7 @@ std::string getLocalizedSurahLabel(const std::string& lang_code) {
 }
 
 std::string getLocalizedNumber(int value, const std::string& lang_code) {
-    json data = load_json_file("data/misc/numbers.json");
+    json data = load_json_file(CacheUtils::resolveDataPath("data/misc/numbers.json"));
     auto lookup_for_lang = [&](const std::string& code) -> std::string {
         if (!data.is_object()) return "";
         auto lang_it = data.find(code);

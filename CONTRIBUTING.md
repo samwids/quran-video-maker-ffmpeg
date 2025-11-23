@@ -193,6 +193,21 @@ cmake --build .
 
 ### Testing Your Changes
 
+
+#### Testing `qvm` executable works locally
+```bash
+rm -rf build-test
+cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PWD/build-test/install
+cmake --build build-test --target install
+
+export QVM_PREFIX=$PWD/build-test/install
+export PATH="$QVM_PREFIX/bin:$PATH"
+
+cd /tmp # or any other folder just not in the repo directory so we're sure no cheating happens because we are in the root directory that has all the assets/data
+
+qvm 1 1 7 # creates surah fatiha. you can test with any other config values or cli flags 
+```
+
 Always test with various surahs:
 - Short surahs (e.g., Al-Fatiha)
 - Long surahs (e.g., Al-Baqarah)
