@@ -58,13 +58,12 @@ Generate videos with translations in multiple languages.
 - English (Sahih International)
 - Oromo (Gaali Abba Boor)
 - Amharic (Sadiq and Sani)
-- Urdu (Fateh Muhammad Jalandhari) (🟡 Major Bug)
+- Urdu (Fateh Muhammad Jalandhari)
 - Basic font rendering for each language
 - Localized surah labels, names, reciter names, and numerals on intros and thumbnails for languages with assets
 
 **TODOs:**
-- Fix RTL translation text rendering words in reverse sequence (e.g. Urdu)
-- Add more translation languages (Urdu, French, Turkish, Indonesian, etc.)
+- Add more translation languages (French, Turkish, Indonesian, Hindi, etc.)
 - Implement automatic font selection per language (single font per language)
 - Add support for Arabic only, single translation, and two-translations subtitle tracks
 
