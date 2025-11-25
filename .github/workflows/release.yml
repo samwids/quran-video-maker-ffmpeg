@@ -32,6 +32,7 @@ jobs:
           libavformat-dev libavcodec-dev libavfilter-dev \
           libavutil-dev libswscale-dev \
           libfreetype6-dev libharfbuzz-dev
+        sudo apt-get install -y ffmpeg
 
     - name: Configure CMake
       run: |
