@@ -23,14 +23,23 @@ The tool supports both gapped (ayah-by-ayah) and gapless (continuous) workflows.
 
 ## Installing
 
-### With Homebrew
+### With Homebrew (macOS/Linux)
 
 ```bash
 brew install ashaltu/tap/qvm
 
-qvm --help
 qvm 1 1 7 # Generates video for the entire Surah Fatiha
 ```
+
+### With Scoop (Windows)
+
+```powershell
+scoop install https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/latest/download/scoop-qvm.json
+
+qvm 1 1 7
+```
+
+Data is fetched automatically via the Scoop manifest.
 
 ### Manually
 
@@ -63,22 +72,47 @@ tar -xf data.tar
 ```
 
 This contains a subset of Quranic data (audio, translations, scripts) needed for local development and testing and unpacks directly into `data/`. For production use or additional resources, visit the [QUL Resources page](https://qul.tarteel.ai/resources/).
+Releases do not bundle data; always download `data.tar` from the R2 link above (same for WSL).
 
 #### 3. Install System Dependencies
 
-**macOS:**
+**macOS (tested locally + GitHub Actions macos-15-arm64, 15.7.1 / 24G231):**
 ```bash
 brew install cmake pkg-config ffmpeg freetype harfbuzz
 ```
 
-**Ubuntu/Debian:**
+**Ubuntu/Debian (tested locally + GitHub Actions ubuntu-24.04):**
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
   build-essential cmake pkg-config \
   libavformat-dev libavcodec-dev libavfilter-dev \
-  libavutil-dev libswscale-dev \
+  libavutil-dev libswscale-dev libswresample-dev \
   libfreetype6-dev libharfbuzz-dev
+```
+
+**Windows (tested on GitHub Actions windows-2025 runner):**
+- Manual (MSYS2 UCRT64):
+  ```bash
+  pacman -S --noconfirm \
+    mingw-w64-ucrt-x86_64-gcc \
+    mingw-w64-ucrt-x86_64-cmake \
+    mingw-w64-ucrt-x86_64-pkgconf \
+    mingw-w64-ucrt-x86_64-ninja \
+    mingw-w64-ucrt-x86_64-ffmpeg \
+    mingw-w64-ucrt-x86_64-freetype \
+    mingw-w64-ucrt-x86_64-harfbuzz \
+    mingw-w64-ucrt-x86_64-curl \
+    mingw-w64-ucrt-x86_64-cpr \
+    mingw-w64-ucrt-x86_64-nlohmann-json \
+    mingw-w64-ucrt-x86_64-cxxopts
+  ```
+  Then build with CMake/Ninja under MSYS2, download `data.tar` to the repo root, `tar -xf data.tar`, and run `./build/qvm.exe ...`.
+
+Scoop (Windows):
+```powershell
+scoop install https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/latest/download/scoop-qvm.json
+qvm 1 1 7
 ```
 
 #### 4. Build the Project

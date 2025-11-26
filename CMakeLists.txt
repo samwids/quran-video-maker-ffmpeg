@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 project(QuranVideoMakerFFmpeg CXX)
+set(CPACK_PACKAGE_NAME "qvm")
+set(CPACK_PACKAGE_VERSION "0.0.0-dev" CACHE STRING "Package version")
+set(CPACK_PACKAGE_VENDOR "ashaltu")
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_ARCHIVE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-win64")
+
+include(InstallRequiredSystemLibraries)
+include(CPack)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,11 +27,26 @@ endif()
 
 # Dependency: cpr
 find_package(cpr CONFIG)
+if(WIN32)
+    # Always build CPR/cURL ourselves on Windows so we can force the Schannel
+    # backend and rely on the native certificate store instead of a missing
+    # OpenSSL CA bundle in Scoop installs.
+    set(cpr_FOUND FALSE)
+endif()
 if(NOT cpr_FOUND)
+    set(CPR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(CPR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(CPR_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(CPR_FORCE_USE_SYSTEM_CURL OFF CACHE BOOL "" FORCE)
+    if(WIN32)
+        set(CPR_CURL_SSL_BACKEND "Schannel" CACHE STRING "" FORCE)
+        set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
+        set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(
       cpr
       GIT_REPOSITORY https://github.com/libcpr/cpr.git
-      GIT_TAG        1.10.5
+      GIT_TAG        1.11.3
     )
     FetchContent_MakeAvailable(cpr)
 endif()
@@ -54,7 +77,7 @@ pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 pkg_check_modules(HARFBUZZ REQUIRED IMPORTED_TARGET harfbuzz)
 
 
-add_library(qvm_lib
+add_library(qvm_lib STATIC
     src/api.cpp src/api.h
     src/video_generator.cpp src/video_generator.h
     src/timing_parser.cpp src/timing_parser.h
@@ -129,5 +152,22 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     install(DIRECTORY assets
         DESTINATION ${CMAKE_INSTALL_DATADIR}/quran-video-maker
+    )
+endif()
+
+if(WIN32)
+    # Optional: include a CA bundle alongside the binary for OpenSSL-based curls
+    if(EXISTS "${CMAKE_BINARY_DIR}/ca-bundle.crt")
+        install(FILES "${CMAKE_BINARY_DIR}/ca-bundle.crt"
+            DESTINATION etc/ssl/certs
+            RENAME ca-bundle.crt
+        )
+    endif()
+endif()
+
+if(WIN32 AND MINGW)
+    install(DIRECTORY ${CMAKE_BINARY_DIR}/deps/
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+        FILES_MATCHING PATTERN "*.dll"
     )
 endif()

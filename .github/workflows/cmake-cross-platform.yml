@@ -1,4 +1,4 @@
-name: CMake (Linux + macOS)
+name: CMake (Linux + macOS + Windows)
 
 on:
   push:
@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      skip_linux:
+        description: 'Skip Linux build'
+        type: boolean
+        default: false
+      skip_macos:
+        description: 'Skip macOS build'
+        type: boolean
+        default: false
+      skip_windows:
+        description: 'Skip Windows build'
+        type: boolean
+        default: false
 
 env:
   BUILD_DIR: build
@@ -13,12 +26,13 @@ env:
 
 jobs:
   build-linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.skip_linux == false
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download test data
+    - name: Download data.tar
       run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
 
     - name: Install build deps
@@ -40,7 +54,7 @@ jobs:
     - name: Build
       run: cmake --build $BUILD_DIR --config $BUILD_TYPE
 
-    - name: Extract test data
+    - name: Extract data.tar
       run: tar -xf data.tar
 
     - name: Test
@@ -49,17 +63,33 @@ jobs:
         ctest --build-config "$BUILD_TYPE" --rerun-failed --output-on-failure
         cd ..
         mkdir -p out
-        ./build/qvm 1 1 7 --reciter 2 --translation 1 --quality-profile speed --width 640 --height 360 --output out/ci-smoke.mp4
-        test -s out/ci-smoke.mp4
-        test -s out/thumbnail.jpeg
+        ./build/qvm 1 1 7 --translation 1 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/en-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/en-thumbnail.jpeg
+        ./build/qvm 1 1 7 --translation 4 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/urd-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/urd-thumbnail.jpeg
+        test -s out/en-ci-smoke.mp4
+        test -s out/en-thumbnail.jpeg
+        test -s out/urd-ci-smoke.mp4
+        test -s out/urd-thumbnail.jpeg
+
+    - name: Upload smoke outputs
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-linux-smoke
+        path: |
+          out/en-ci-smoke.mp4
+          out/urd-ci-smoke.mp4
+          out/en-thumbnail.jpeg
+          out/urd-thumbnail.jpeg
 
   build-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.skip_macos == false
     runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download test data
+    - name: Download data.tar
       run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
 
     - name: Install FFmpeg dependencies
@@ -82,7 +112,7 @@ jobs:
     - name: Build
       run: cmake --build $BUILD_DIR --config $BUILD_TYPE
 
-    - name: Extract test data
+    - name: Extract data.tar
       run: tar -xf data.tar
 
     - name: Test
@@ -91,6 +121,89 @@ jobs:
         ctest --build-config "$BUILD_TYPE" --rerun-failed --output-on-failure
         cd ..
         mkdir -p out
-        ./build/qvm 1 1 7 --reciter 2 --translation 1 --quality-profile speed --width 640 --height 360 --output out/ci-smoke.mp4
-        test -s out/ci-smoke.mp4
-        test -s out/thumbnail.jpeg
+        ./build/qvm 1 1 7 --translation 1 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/en-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/en-thumbnail.jpeg
+        ./build/qvm 1 1 7 --translation 4 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/urd-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/urd-thumbnail.jpeg
+        test -s out/en-ci-smoke.mp4
+        test -s out/en-thumbnail.jpeg
+        test -s out/urd-ci-smoke.mp4
+        test -s out/urd-thumbnail.jpeg
+
+    - name: Upload smoke outputs
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-macos-smoke
+        path: |
+          out/en-ci-smoke.mp4
+          out/urd-ci-smoke.mp4
+          out/en-thumbnail.jpeg
+          out/urd-thumbnail.jpeg
+
+  build-windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.skip_windows == false
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        msystem: UCRT64
+        install: >-
+          ucrt64/mingw-w64-ucrt-x86_64-gcc
+          ucrt64/mingw-w64-ucrt-x86_64-pkgconf
+          ucrt64/mingw-w64-ucrt-x86_64-cmake
+          ucrt64/mingw-w64-ucrt-x86_64-ninja
+          ucrt64/mingw-w64-ucrt-x86_64-curl
+          ucrt64/mingw-w64-ucrt-x86_64-cpr
+          ucrt64/mingw-w64-ucrt-x86_64-nlohmann-json
+          ucrt64/mingw-w64-ucrt-x86_64-cxxopts
+          ucrt64/mingw-w64-ucrt-x86_64-ffmpeg
+          ucrt64/mingw-w64-ucrt-x86_64-freetype
+          ucrt64/mingw-w64-ucrt-x86_64-harfbuzz
+
+    - name: Prepare data.tar
+      shell: msys2 {0}
+      run: |
+        curl -L -o data.tar https://qvm-r2-storage.tawbah.app/data.tar
+        tar -xf data.tar
+
+    - name: Configure CMake
+      shell: msys2 {0}
+      run: |
+        export PKG_CONFIG_PATH="/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -S $GITHUB_WORKSPACE
+
+    - name: Build
+      shell: msys2 {0}
+      run: cmake --build build --config Release
+
+    - name: Test (unit tests and smoke test)
+      shell: msys2 {0}
+      run: |
+        cd ${BUILD_DIR}
+        ctest --build-config ${BUILD_TYPE} --rerun-failed --output-on-failure
+        cd ..
+        mkdir -p out
+        ./build/qvm.exe 1 1 7 --translation 1 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/en-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/en-thumbnail.jpeg
+        ./build/qvm.exe 1 1 7 --translation 4 --preset ultrafast --arabic-font-size=60 --translation-font-size=75 --output out/urd-ci-smoke.mp4
+        mv out/thumbnail.jpeg out/urd-thumbnail.jpeg
+        test -s out/en-ci-smoke.mp4
+        test -s out/en-thumbnail.jpeg
+        test -s out/urd-ci-smoke.mp4
+        test -s out/urd-thumbnail.jpeg
+
+    - name: Upload smoke outputs
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-windows-smoke
+        path: |
+          out/en-ci-smoke.mp4
+          out/urd-ci-smoke.mp4
+          out/en-thumbnail.jpeg
+          out/urd-thumbnail.jpeg
+          

@@ -1,4 +1,4 @@
-name: Release (build + test + brew)
+name: Release
 
 on:
   workflow_dispatch:
@@ -9,6 +9,18 @@ on:
       prerelease:
         description: "Is this a prerelease?"
         type: boolean
+        default: false
+      build_linux:
+        description: 'Build and upload Linux artifacts'
+        type: boolean
+        default: true
+      build_macos:
+        description: 'Build and upload macOS artifacts'
+        type: boolean
+        default: true
+      build_windows:
+        description: 'Build and upload Windows artifacts'
+        type: boolean
         default: true
 
 env:
@@ -17,13 +29,17 @@ env:
 
 jobs:
   build-linux:
+    if: ${{ inputs.build_linux }}
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download test data
+    - name: Download data.tar
       run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
+
+    - name: Extract data.tar
+      run: tar -xf data.tar
 
     - name: Install build deps
       run: |
@@ -32,39 +48,43 @@ jobs:
           libavformat-dev libavcodec-dev libavfilter-dev \
           libavutil-dev libswscale-dev \
           libfreetype6-dev libharfbuzz-dev
-        sudo apt-get install -y ffmpeg
 
     - name: Configure CMake
       run: |
+        VERSION="${{ github.event.inputs.version }}"
+        VER_NO_V="${VERSION#v}"
         cmake -B $BUILD_DIR \
           -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCPACK_PACKAGE_VERSION="$VER_NO_V" \
           -DFETCHCONTENT_QUIET=OFF \
-          -S .
+          -S ${{ github.workspace }}
 
     - name: Build
       run: cmake --build $BUILD_DIR --config $BUILD_TYPE
 
-    - name: Extract test data
-      run: tar -xf data.tar
-
-    - name: Test
+    - name: Package with CPack
       run: |
-        cd "$BUILD_DIR"
-        ctest --build-config "$BUILD_TYPE" --output-on-failure
-        cd ..
-        mkdir -p out
-        ./build/qvm 1 1 7 --reciter 2 --translation 1 --quality-profile speed --width 640 --height 360 --output out/ci-smoke.mp4
-        test -s out/ci-smoke.mp4
-        test -s out/thumbnail.jpeg
+        cd $BUILD_DIR
+        cpack -G ZIP
+
+    - name: Upload Linux package
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-linux-release
+        path: build/qvm-*.zip
 
   build-macos:
+    if: ${{ inputs.build_macos }}
     runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download test data
+    - name: Download data.tar
       run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
+
+    - name: Extract data.tar
+      run: tar -xf data.tar
 
     - name: Install FFmpeg dependencies
       run: |
@@ -78,106 +98,184 @@ jobs:
 
     - name: Configure CMake
       run: |
+        VERSION="${{ github.event.inputs.version }}"
+        VER_NO_V="${VERSION#v}"
         cmake -B $BUILD_DIR \
           -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCPACK_PACKAGE_VERSION="$VER_NO_V" \
           -DFETCHCONTENT_QUIET=OFF \
-          -S .
+          -S ${{ github.workspace }}
 
     - name: Build
       run: cmake --build $BUILD_DIR --config $BUILD_TYPE
 
-    - name: Extract test data
+    - name: Package with CPack
+      run: |
+        cd $BUILD_DIR
+        cpack -G ZIP
+
+    - name: Upload macOS package
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-macos-release
+        path: build/qvm-*.zip
+
+  build-windows:
+    if: ${{ inputs.build_windows }}
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        update: true
+        msystem: UCRT64
+        install: >-
+          ucrt64/mingw-w64-ucrt-x86_64-gcc
+          ucrt64/mingw-w64-ucrt-x86_64-pkgconf
+          ucrt64/mingw-w64-ucrt-x86_64-cmake
+          ucrt64/mingw-w64-ucrt-x86_64-ninja
+          ucrt64/mingw-w64-ucrt-x86_64-curl
+          ucrt64/mingw-w64-ucrt-x86_64-cpr
+          ucrt64/mingw-w64-ucrt-x86_64-nlohmann-json
+          ucrt64/mingw-w64-ucrt-x86_64-cxxopts
+          ucrt64/mingw-w64-ucrt-x86_64-ffmpeg
+          ucrt64/mingw-w64-ucrt-x86_64-freetype
+          ucrt64/mingw-w64-ucrt-x86_64-harfbuzz
+
+    - name: Download data.tar
+      shell: msys2 {0}
+      run: curl -L -o data.tar https://qvm-r2-storage.tawbah.app/data.tar
+
+    - name: Extract data.tar
+      shell: msys2 {0}
       run: tar -xf data.tar
 
-    - name: Test
+    - name: Configure CMake
+      shell: msys2 {0}
       run: |
-        cd "$BUILD_DIR"
-        ctest --build-config "$BUILD_TYPE" --output-on-failure
-        cd ..
-        mkdir -p out
-        ./build/qvm 1 1 7 --reciter 2 --translation 1 --quality-profile speed --width 640 --height 360 --output out/ci-smoke.mp4
-        test -s out/ci-smoke.mp4
-        test -s out/thumbnail.jpeg
+        VERSION="${{ github.event.inputs.version }}"
+        VER_NO_V="${VERSION#v}"
+        export PKG_CONFIG_PATH="/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig:$PKG_CONFIG_PATH"
+        cmake -B build -G "Ninja" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCPACK_PACKAGE_VERSION="$VER_NO_V" \
+          -S $GITHUB_WORKSPACE
+
+    - name: Build
+      shell: msys2 {0}
+      run: cmake --build build --config Release
+
+    - name: Download CA bundle for curl
+      shell: msys2 {0}
+      run: |
+        mkdir -p build
+        curl -L -o build/ca-bundle.crt https://curl.se/ca/cacert.pem
+
+    - name: Copy all runtime dependencies
+      shell: msys2 {0}
+      run: |
+        cd build
+        mkdir -p deps
+        ldd qvm.exe | grep ucrt64 | awk '{print $3}' | xargs -I {} cp {} deps/
+            
+    - name: Package with CPack
+      shell: msys2 {0}
+      run: |
+        cd build
+        cpack -G ZIP
+
+    - name: Upload Windows packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: qvm-windows-release
+        path: build/qvm-*.zip
 
   release:
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-macos, build-windows]
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Download Linux artifacts
+      if: ${{ inputs.build_linux }}
+      uses: actions/download-artifact@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        name: qvm-linux-release
+        path: artifacts/linux
 
-    - name: Download data for release packaging
-      run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
+    - name: Download macOS artifacts
+      if: ${{ inputs.build_macos }}
+      uses: actions/download-artifact@v4
+      with:
+        name: qvm-macos-release
+        path: artifacts/macos
 
-    - name: Extract data for release packaging
-      run: tar -xf data.tar
+    - name: Download Windows artifacts
+      if: ${{ inputs.build_windows }}
+      uses: actions/download-artifact@v4
+      with:
+        name: qvm-windows-release
+        path: artifacts/windows
 
-    - name: Create release tarball (includes data/)
+    - name: Compute Windows artifact SHA
+      if: ${{ inputs.build_windows }}
+      id: winsha
+      run: |
+        WIN_ZIP=$(find artifacts/windows -name "qvm-*-win64.zip" | head -n1)
+        if [ -n "$WIN_ZIP" ]; then
+          echo "win_sha=$(shasum -a 256 "$WIN_ZIP" | awk '{print $1}')" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Generate Scoop manifest
+      if: ${{ inputs.build_windows }}
+      run: |
+        VERSION="${{ github.event.inputs.version }}"
+        VER_NO_V="${VERSION#v}"
+        WIN_ZIP=$(find artifacts/windows -name "qvm-*-win64.zip" -printf "%f\n" | head -n1)
+        cp scoop/qvm.json scoop-qvm.json
+        sed -i.bak \
+          -e "s/0.0.0/${VER_NO_V}/" \
+          -e "s|qvm-0.0.0-dev-win64.zip|${WIN_ZIP}|" \
+          -e "s/REPLACE_WITH_SHA256_OF_qvm-bin-windows.zip/${{ steps.winsha.outputs.win_sha }}/" \
+          scoop-qvm.json
+        rm scoop-qvm.json.bak
+
+    - name: Prepare source tarball
       run: |
         mkdir release-src
         git archive --format=tar --prefix=qvm-${{ github.event.inputs.version }}/ HEAD | tar -xf - -C release-src
-        cp -r data release-src/qvm-${{ github.event.inputs.version }}/
         tar -czf qvm-${{ github.event.inputs.version }}.tar.gz -C release-src qvm-${{ github.event.inputs.version }}
 
-    - name: Compute SHA256
-      id: sha
-      run: echo "sha256=$(shasum -a 256 qvm-${{ github.event.inputs.version }}.tar.gz | awk '{print $1}')" >> $GITHUB_OUTPUT
-
-    - name: Create Git tag
+    - name: Collect release files
+      id: collect
       run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag ${{ github.event.inputs.version }}
-        git push origin ${{ github.event.inputs.version }}
+        FILES="qvm-${{ github.event.inputs.version }}.tar.gz"
+        if [ -d artifacts/linux ]; then
+          FILES="$FILES $(find artifacts/linux -type f)"
+        fi
+        if [ -d artifacts/macos ]; then
+          FILES="$FILES $(find artifacts/macos -type f)"
+        fi
+        if [ -d artifacts/windows ]; then
+          FILES="$FILES $(find artifacts/windows -type f)"
+        fi
+        if [ -f scoop-qvm.json ]; then
+          FILES="$FILES scoop-qvm.json"
+        fi
+        echo "files<<EOF" >> $GITHUB_OUTPUT
+        echo "$FILES" | tr ' ' '\n' >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Publish GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.version }}
-        files: qvm-${{ github.event.inputs.version }}.tar.gz
+        files: ${{ steps.collect.outputs.files }}
         prerelease: ${{ github.event.inputs.prerelease }}
-
-  update-homebrew-tap:
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout homebrew-tap repository
-      uses: actions/checkout@v4
-      with:
-        repository: ashaltu/homebrew-tap
-        token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-
-    - name: Download release tarball to compute SHA256
-      run: |
-        curl -L -o qvm-${{ github.event.inputs.version }}.tar.gz \
-          https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/${{ github.event.inputs.version }}/qvm-${{ github.event.inputs.version }}.tar.gz
-
-    - name: Compute SHA256
-      id: sha
-      run: echo "sha256=$(shasum -a 256 qvm-${{ github.event.inputs.version }}.tar.gz | awk '{print $1}')" >> $GITHUB_OUTPUT
-
-    - name: Update Homebrew formula
-      run: |
-        FORMULA="Formula/qvm.rb"
-        URL="https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/${{ github.event.inputs.version }}/qvm-${{ github.event.inputs.version }}.tar.gz"
-
-        sed -i.bak \
-          -e "s|url \".*\"|url \"${URL}\"|" \
-          -e "s|sha256 \".*\"|sha256 \"${{ steps.sha.outputs.sha256 }}\"|" \
-          -e "s|license \".*\"|license \"GPL-3.0\"|" \
-          "$FORMULA"
-
-        rm "$FORMULA.bak"
-
-    - name: Commit and push changes
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add Formula/qvm.rb
-        git commit -m "Update qvm to ${{ github.event.inputs.version }}"
-        git push

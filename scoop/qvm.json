@@ -1,0 +1,36 @@
+{
+  "version": "0.0.0",
+  "description": "C++/FFmpeg tool that generates high-quality Quran verse videos",
+  "homepage": "https://github.com/ashaltu/quran-video-maker-ffmpeg",
+  "license": "GPL-3.0",
+  "url": "https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/v0.0.0/qvm-0.0.0-dev-win64.zip",
+  "hash": "REPLACE_WITH_SHA256_OF_qvm-bin-windows.zip",
+  "extract_dir": "qvm-0.1.3-win64",
+  "bin": "bin\\qvm.exe",
+  "depends": ["ffmpeg"],
+  "checkver": {
+    "github": "https://github.com/ashaltu/quran-video-maker-ffmpeg"
+  },
+  "autoupdate": {
+    "url": "https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/v$version/qvm-$version-win64.zip",
+    "extract_dir": "qvm-$version-win64"
+  },
+  "env_add_path": "bin",
+  "persist": ["cache", "bin"],
+  "env_set": {
+    "QVM_CACHE_DIR": "$env:LOCALAPPDATA\\QVM\\cache",
+    "CURL_CA_BUNDLE": "$dir\\etc\\ssl\\certs\\ca-bundle.crt",
+    "CURL_SSL_BACKEND": "schannel"
+  },
+  "post_install": [
+    "mkdir \"$env:LOCALAPPDATA\\QVM\\cache\" -ErrorAction SilentlyContinue",
+    "$certDir = Join-Path \"$dir\" 'etc/ssl/certs'",
+    "New-Item -ItemType Directory -Force -Path $certDir | Out-Null",
+    "$caBundle = Join-Path $certDir 'ca-bundle.crt'",
+    "try {",
+    "  Invoke-WebRequest -Uri 'https://curl.se/ca/cacert.pem' -OutFile $caBundle -ErrorAction Stop",
+    "} catch {",
+    "  Write-Host \"Warning: failed to refresh CA bundle: $_\"",
+    "}"
+  ]
+}
