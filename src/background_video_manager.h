@@ -20,7 +20,6 @@ class Manager {
 public:
     explicit Manager(const AppConfig& config, const CLIOptions& options);
     
-    std::string prepareBackgroundVideo(double totalDurationSeconds);
     std::string buildFilterComplex(double totalDurationSeconds, 
                                    std::vector<std::string>& outputInputFiles);
     void cleanup();
@@ -33,8 +32,6 @@ private:
     std::vector<std::filesystem::path> tempFiles_;
     VideoSelector::SelectionState selectionState_;
     
-    std::vector<VideoSegment> collectVideoSegments(double targetDuration);
-    std::string stitchVideos(const std::vector<VideoSegment>& segments);
     double getVideoDuration(const std::string& path);
     
     // Cache management methods

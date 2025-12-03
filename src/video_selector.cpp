@@ -33,29 +33,6 @@ Selector::Selector(const std::string& metadataPath, unsigned int seed)
     file >> metadata;
 }
 
-std::vector<int> Selector::parseVerseRange(const std::string& rangeStr) {
-    std::vector<int> verses;
-    std::istringstream iss(rangeStr);
-    std::string part;
-    
-    while (std::getline(iss, part, ',')) {
-        size_t dashPos = part.find('-');
-        if (dashPos != std::string::npos) {
-            int start = std::stoi(part.substr(0, dashPos));
-            int end = std::stoi(part.substr(dashPos + 1));
-            for (int i = start; i <= end; ++i) {
-                verses.push_back(i);
-            }
-        } else {
-            verses.push_back(std::stoi(part));
-        }
-    }
-    
-    std::sort(verses.begin(), verses.end());
-    verses.erase(std::unique(verses.begin(), verses.end()), verses.end());
-    return verses;
-}
-
 std::pair<int, int> Selector::findRangeBoundsForVerse(int surah, int verse) {
     std::string surahKey = std::to_string(surah);
     if (!metadata.contains(surahKey)) {
@@ -102,17 +79,6 @@ std::vector<std::string> Selector::findRangeForVerse(int surah, int verse) {
     return {};
 }
 
-std::vector<std::string> Selector::getThemesForVerses(int surah, int from, int to) {
-    std::set<std::string> allThemes;
-    
-    for (int verse = from; verse <= to; ++verse) {
-        auto themes = findRangeForVerse(surah, verse);
-        allThemes.insert(themes.begin(), themes.end());
-    }
-    
-    return std::vector<std::string>(allThemes.begin(), allThemes.end());
-}
-
 std::vector<VerseRangeSegment> Selector::getVerseRangeSegments(int surah, int from, int to) {
     std::vector<VerseRangeSegment> segments;
     
@@ -134,6 +100,8 @@ std::vector<VerseRangeSegment> Selector::getVerseRangeSegments(int surah, int fr
             segment.startVerse = std::max(bounds.first, from);
             segment.endVerse = std::min(bounds.second, to);
             segment.themes = findRangeForVerse(surah, verse);
+            segment.startTimeFraction = 0.0;
+            segment.endTimeFraction = 0.0; 
             rangeMap[rangeKey] = segment;
         } else {
             // Update the end verse if needed

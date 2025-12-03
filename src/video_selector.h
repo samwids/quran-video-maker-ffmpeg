@@ -45,9 +45,6 @@ class Selector {
 public:
     explicit Selector(const std::string& metadataPath, unsigned int seed = 99);
     
-    // Get themes for a verse range (returns all themes)
-    std::vector<std::string> getThemesForVerses(int surah, int from, int to);
-    
     // Get verse range segments with time allocations for the requested range
     std::vector<VerseRangeSegment> getVerseRangeSegments(int surah, int from, int to);
     
@@ -71,7 +68,6 @@ private:
     nlohmann::json metadata;
     SeededRandom random;
     
-    std::vector<int> parseVerseRange(const std::string& rangeStr);
     std::vector<std::string> findRangeForVerse(int surah, int verse);
     std::pair<int, int> findRangeBoundsForVerse(int surah, int verse);
     
