@@ -3,6 +3,9 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <fstream>
 #include <iostream>
@@ -135,6 +138,97 @@ std::string Client::downloadVideo(const std::string& key, const fs::path& localP
     }
     
     return localPath.string();
+}
+
+std::vector<std::string> Client::listThemes() {
+    Aws::S3::Model::ListObjectsV2Request request;
+    request.SetBucket(pImpl->config.bucket);
+    request.SetDelimiter("/");
+    
+    auto outcome = pImpl->s3Client->ListObjectsV2(request);
+    
+    if (!outcome.IsSuccess()) {
+        auto& error = outcome.GetError();
+        throw std::runtime_error(
+            "Failed to list themes: " + 
+            error.GetExceptionName() + " - " + error.GetMessage()
+        );
+    }
+    
+    std::vector<std::string> themes;
+    const auto& prefixes = outcome.GetResult().GetCommonPrefixes();
+    
+    for (const auto& prefix : prefixes) {
+        std::string theme = prefix.GetPrefix();
+        // Remove trailing slash
+        if (!theme.empty() && theme.back() == '/') {
+            theme.pop_back();
+        }
+        themes.push_back(theme);
+    }
+    
+    return themes;
+}
+
+bool Client::uploadVideo(const fs::path& localPath, const std::string& key) {
+    if (!fs::exists(localPath)) {
+        std::cerr << "File does not exist: " << localPath << std::endl;
+        return false;
+    }
+    
+    Aws::S3::Model::PutObjectRequest request;
+    request.SetBucket(pImpl->config.bucket);
+    request.SetKey(key);
+    
+    std::shared_ptr<Aws::IOStream> inputData = 
+        Aws::MakeShared<Aws::FStream>("UploadAllocation",
+                                      localPath.string(),
+                                      std::ios_base::in | std::ios_base::binary);
+    
+    if (!inputData->good()) {
+        std::cerr << "Failed to open file for upload: " << localPath << std::endl;
+        return false;
+    }
+    
+    request.SetBody(inputData);
+    request.SetContentType("video/mp4");
+    
+    auto outcome = pImpl->s3Client->PutObject(request);
+    
+    if (!outcome.IsSuccess()) {
+        auto& error = outcome.GetError();
+        std::cerr << "Upload failed for " << key << ": " 
+                  << error.GetExceptionName() << " - " << error.GetMessage() << std::endl;
+        return false;
+    }
+    
+    return true;
+}
+
+bool Client::deleteObject(const std::string& key) {
+    Aws::S3::Model::DeleteObjectRequest request;
+    request.SetBucket(pImpl->config.bucket);
+    request.SetKey(key);
+    
+    auto outcome = pImpl->s3Client->DeleteObject(request);
+    
+    if (!outcome.IsSuccess()) {
+        auto& error = outcome.GetError();
+        std::cerr << "Delete failed for " << key << ": " 
+                  << error.GetExceptionName() << " - " << error.GetMessage() << std::endl;
+        return false;
+    }
+    
+    return true;
+}
+
+bool Client::objectExists(const std::string& key) {
+    Aws::S3::Model::HeadObjectRequest request;
+    request.SetBucket(pImpl->config.bucket);
+    request.SetKey(key);
+    
+    auto outcome = pImpl->s3Client->HeadObject(request);
+    return outcome.IsSuccess();
 }
 
 } // namespace R2

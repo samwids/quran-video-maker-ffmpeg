@@ -199,6 +199,62 @@ You can override any individual quality parameter via CLI (`--quality-profile`, 
 
 `config.json` now exposes a `qualityProfiles` object where you can describe presets for `speed`, `balanced`, `max`, or any custom label you invent. Each entry can override `preset`, `crf`, `pixelFormat`, and the optional bitrate knobs. The CLI flag `--quality-profile` simply picks one of those blocks (default: `balanced`) and still allows overriding individual values via `--preset`, `--crf`, `--pix-fmt`, `--video-bitrate`, `--maxrate`, and `--bufsize`.
 
+
+### Dynamic Background Videos
+The tool supports dynamic background video selection based on verse themes. Videos are automatically selected and stitched during rendering.
+
+```bash
+# Enable dynamic backgrounds
+qvm 19 1 40 --enable-dynamic-bg
+```
+
+#### Expected Tree Structure of Video Folders(pre-standardization)
+You will see each theme has it's own folder. The **naming of videos inside the the themed folders is irrelevant**, as long as the video extensions are one of the following: `mp4`, `mov`, `.avi`, `mkv`, or `webm`. The **naming of the folder IS relevant** as they following mappings in the default `metadata/surah-themes.json` provided. That being said, you **can** come up with your own `surah-themes.json` file which would let you define your own naming of themes as well as your own custom definition of grouped-verse ranges.
+```bash
+quran-background-videos
+├── birth
+│   └── birth_001.mov
+├── dua
+│   └── dua_001.mov
+├── judgement
+│   └── judgement_001.mp4
+├── maryam
+│   ├── maryam_001.mp4
+│   └── maryam_002.mov
+├── mihrab
+│   └── mihrab_001.mp4
+├── miracle
+│   └── miracle_001.mp4
+├── newlife
+│   └── newlife_001.mp4
+├── prayer
+│   └── prayer_001.mp4
+└── prophet
+    ├── prophet_001.mp4
+    └── prophet_002.mp4
+```
+
+#### Video Standardization
+Before using dynamic backgrounds, videos should be standardized to ensure compatibility:
+
+```bash
+# Standardize local directory
+qvm --standardize-local /path/to/videos #
+
+# Standardize R2 bucket (requires R2 credentials with read/write permissions)
+export R2_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+export R2_ACCESS_KEY=your-access-key
+export R2_SECRET_KEY=your-secret-key
+qvm --standardize-r2 your-bucket-name
+```
+
+**Standardization**:
+- Converts all videos to 1280x720 @ 30fps
+- Uses H.264 codec with consistent settings
+- Removes audio tracks
+- Generates metadata file
+- Alters naming of files
+
 ### Render Metadata Sidecar
 
 Every render writes a JSON sidecar next to the video (e.g., `out/surah-1_1-7.metadata.json`). It captures:

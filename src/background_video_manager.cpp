@@ -84,10 +84,18 @@ std::string Manager::buildFilterComplex(double totalDurationSeconds,
         };
         R2::Client r2Client(r2Config);
         
-        // Get verse range segments
+        // Get verse range segments with time allocations
         auto verseRangeSegments = selector.getVerseRangeSegments(
             options_.surah, options_.from, options_.to
         );
+        
+        // Calculate absolute time boundaries for each range
+        std::map<std::string, double> rangeStartTimes;
+        std::map<std::string, double> rangeEndTimes;
+        for (const auto& seg : verseRangeSegments) {
+            rangeStartTimes[seg.rangeKey] = seg.startTimeFraction * totalDurationSeconds;
+            rangeEndTimes[seg.rangeKey] = seg.endTimeFraction * totalDurationSeconds;
+        }
         
         // Collect themes and cache videos
         std::set<std::string> allThemes;
@@ -113,15 +121,40 @@ std::string Manager::buildFilterComplex(double totalDurationSeconds,
         std::vector<VideoSegment> segments;
         double currentTime = 0.0;
         int segmentCount = 0;
+        std::string currentRangeKey;
+        const VideoSelector::VerseRangeSegment* currentRange = nullptr;
         
-        while (currentTime < totalDurationSeconds && segmentCount < 100) {
+        while (currentTime < totalDurationSeconds) {
             segmentCount++;
+            
+            // Calculate reasonable safety segment limit based on duration
+            int maxSegments = std::max(1000, static_cast<int>(totalDurationSeconds / 5.0));
+            if (segmentCount > maxSegments) {
+                std::cerr << "  Warning: Reached segment limit, stopping collection" << std::endl;
+                break;
+            }
+            
             double timeFraction = currentTime / totalDurationSeconds;
             
-            const auto* range = selector.getRangeForTimePosition(verseRangeSegments, timeFraction);
-            if (!range) break;
+            // Get the appropriate verse range segment for this time position
+            const auto* newRange = selector.getRangeForTimePosition(verseRangeSegments, timeFraction);
+            if (!newRange) break;
             
-            auto entry = selector.getNextVideoForRange(range->rangeKey, selectionState_);
+            // Check if we changed ranges
+            if (currentRange != newRange) {
+                if (currentRange != nullptr) {
+                    std::cout << "  --- Transitioning from " << currentRange->rangeKey 
+                              << " to " << newRange->rangeKey << " ---" << std::endl;
+                }
+                currentRange = newRange;
+                currentRangeKey = newRange->rangeKey;
+            }
+            
+            // Calculate time remaining for this range
+            double rangeEndTime = rangeEndTimes[currentRangeKey];
+            double timeRemainingInRange = rangeEndTime - currentTime;
+            
+            auto entry = selector.getNextVideoForRange(currentRangeKey, selectionState_);
             
             // Check cache first
             std::string localPath;
@@ -142,16 +175,36 @@ std::string Manager::buildFilterComplex(double totalDurationSeconds,
             }
             
             double duration = getVideoDuration(localPath);
-            if (duration <= 0) continue;
+            if (duration <= 0) {
+                std::cerr << "  Invalid duration for video, skipping" << std::endl;
+                continue;
+            }
             
             VideoSegment segment;
             segment.path = localPath;
             segment.theme = entry.theme;
             segment.duration = duration;
-            segment.trimmedDuration = std::min(duration, totalDurationSeconds - currentTime);
-            segment.needsTrim = (segment.trimmedDuration < segment.duration);
             segment.isLocal = true;
-
+            segment.needsTrim = false;
+            segment.trimmedDuration = duration;
+            
+            // Check if this video would extend beyond the current range
+            if (currentTime + duration > rangeEndTime && timeRemainingInRange > 0.5) {
+                // This video would cross into the next range - trim it
+                segment.needsTrim = true;
+                segment.trimmedDuration = timeRemainingInRange;
+                std::cout << "  Trimming video from " << duration << "s to " 
+                          << segment.trimmedDuration << "s to fit range boundary" << std::endl;
+            }
+            
+            // Also check if it would exceed total duration
+            if (currentTime + segment.trimmedDuration > totalDurationSeconds) {
+                segment.needsTrim = true;
+                segment.trimmedDuration = totalDurationSeconds - currentTime;
+                std::cout << "  Trimming video to " << segment.trimmedDuration 
+                          << "s to match total duration" << std::endl;
+            }
+            
             segments.push_back(segment);
             outputInputFiles.push_back(localPath);
             currentTime += segment.trimmedDuration;
@@ -165,7 +218,7 @@ std::string Manager::buildFilterComplex(double totalDurationSeconds,
         // Build concat filter
         std::ostringstream filter;
         
-        // First, scale all inputs to same size
+        // First, scale and trim all inputs to same size
         for (size_t i = 0; i < segments.size(); ++i) {
             filter << "[" << i << ":v]";
             
@@ -185,7 +238,8 @@ std::string Manager::buildFilterComplex(double totalDurationSeconds,
         filter << "concat=n=" << segments.size() << ":v=1:a=0[bg]; ";
         filter << "[bg]setpts=PTS-STARTPTS";
         
-        std::cout << "  Selected " << segments.size() << " video segments" << std::endl;
+        std::cout << "  Selected " << segments.size() << " video segments, total duration: " 
+                  << currentTime << " seconds" << std::endl;
         return filter.str();
         
     } catch (const std::exception& e) {

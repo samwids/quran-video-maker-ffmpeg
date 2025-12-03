@@ -1,4 +1,5 @@
 #include "video_standardizer.h"
+#include "r2_client.h"
 #include <iostream>
 #include <sstream>
 #include <filesystem>
@@ -31,10 +32,10 @@ std::string getCurrentTimestamp() {
     return oss.str();
 }
 
+// clean me  up by removing boolean flag and splitting into two functions
 void standardizeDirectory(const std::string& path, bool isR2Bucket) {
     if (isR2Bucket) {
-        std::cout << "R2 bucket standardization not yet implemented" << std::endl;
-        std::cout << "Please download the bucket locally first, standardize, then re-upload" << std::endl;
+        standardizeR2Bucket(path);
         return;
     }
     
@@ -133,6 +134,144 @@ void standardizeDirectory(const std::string& path, bool isR2Bucket) {
     std::cout << "Total videos: " << totalVideos << std::endl;
     std::cout << "Total duration: " << totalDuration << " seconds" << std::endl;
     std::cout << "Metadata saved to: " << metadataPath << std::endl;
+}
+
+void standardizeR2Bucket(const std::string& bucketName) {
+    std::cout << "Standardizing R2 bucket: " << bucketName << std::endl;
+    
+    // Get R2 config from environment
+    R2::R2Config r2Config;
+    r2Config.bucket = bucketName;
+    r2Config.endpoint = std::getenv("R2_ENDPOINT") ? std::getenv("R2_ENDPOINT") : "";
+    r2Config.accessKey = std::getenv("R2_ACCESS_KEY") ? std::getenv("R2_ACCESS_KEY") : "";
+    r2Config.secretKey = std::getenv("R2_SECRET_KEY") ? std::getenv("R2_SECRET_KEY") : "";
+    r2Config.usePublicAccess = false;
+    
+    if (r2Config.endpoint.empty() || r2Config.accessKey.empty() || r2Config.secretKey.empty()) {
+        throw std::runtime_error("R2 credentials not set. Please set R2_ENDPOINT, R2_ACCESS_KEY, and R2_SECRET_KEY environment variables.");
+    }
+    
+    R2::Client r2Client(r2Config);
+    
+    // Create temp directory for processing
+    fs::path tempDir = fs::temp_directory_path() / ("r2_standardize_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(tempDir);
+    
+    json metadata;
+    metadata["bucket"] = bucketName;
+    metadata["standardizedAt"] = getCurrentTimestamp();
+    metadata["videos"] = json::array();
+    
+    int totalVideos = 0;
+    double totalDuration = 0.0;
+    
+    try {
+        // List all themes
+        auto themes = r2Client.listThemes();
+        
+        for (const auto& theme : themes) {
+            std::cout << "\nProcessing theme: " << theme << std::endl;
+            
+            // List videos in theme
+            auto videos = r2Client.listVideosInTheme(theme);
+            
+            for (const auto& videoKey : videos) {
+                std::string filename = fs::path(videoKey).filename().string();
+                
+                // Skip already standardized files
+                if (filename.find("_std.mp4") != std::string::npos) {
+                    std::cout << "  Already standardized: " << filename << std::endl;
+                    continue;
+                }
+                
+                // Download video
+                fs::path localPath = tempDir / filename;
+                std::cout << "  Downloading: " << filename << std::endl;
+                
+                try {
+                    r2Client.downloadVideo(videoKey, localPath);
+                } catch (const std::exception& e) {
+                    std::cerr << "  Download failed: " << e.what() << std::endl;
+                    continue;
+                }
+                
+                // Standardize the video
+                std::string stdFilename = fs::path(filename).stem().string() + "_std.mp4";
+                fs::path stdPath = tempDir / stdFilename;
+                
+                std::ostringstream cmd;
+                cmd << "ffmpeg -y -i \"" << localPath.string() << "\" "
+                    << "-c:v libx264 -preset fast -crf 23 "
+                    << "-s 1280x720 -r 30 "
+                    << "-pix_fmt yuv420p "
+                    << "-an "  // Remove audio
+                    << "-movflags +faststart "
+                    << "\"" << stdPath.string() << "\" 2>/dev/null";
+                
+                std::cout << "  Standardizing: " << filename << " -> " << stdFilename << std::endl;
+                
+                int result = std::system(cmd.str().c_str());
+                if (result == 0 && fs::exists(stdPath)) {
+                    // Get duration
+                    AVFormatContext* ctx = nullptr;
+                    double duration = 0.0;
+                    if (avformat_open_input(&ctx, stdPath.string().c_str(), nullptr, nullptr) == 0) {
+                        if (avformat_find_stream_info(ctx, nullptr) >= 0) {
+                            duration = static_cast<double>(ctx->duration) / AV_TIME_BASE;
+                        }
+                        avformat_close_input(&ctx);
+                    }
+                    
+                    // Upload standardized video
+                    std::string newKey = theme + "/" + stdFilename;
+                    std::cout << "  Uploading: " << newKey << std::endl;
+                    
+                    if (r2Client.uploadVideo(stdPath, newKey)) {
+                        // Delete original from R2
+                        r2Client.deleteObject(videoKey);
+                        
+                        // Add to metadata
+                        json videoInfo;
+                        videoInfo["theme"] = theme;
+                        videoInfo["filename"] = stdFilename;
+                        videoInfo["key"] = newKey;
+                        videoInfo["duration"] = duration;
+                        metadata["videos"].push_back(videoInfo);
+                        
+                        totalVideos++;
+                        totalDuration += duration;
+                    }
+                    
+                    // Clean up local files
+                    fs::remove(localPath);
+                    fs::remove(stdPath);
+                } else {
+                    std::cerr << "  Failed to standardize: " << filename << std::endl;
+                }
+            }
+        }
+        
+        metadata["totalVideos"] = totalVideos;
+        metadata["totalDuration"] = totalDuration;
+        
+        // Upload metadata to R2
+        fs::path metadataPath = tempDir / "metadata.json";
+        std::ofstream metaFile(metadataPath);
+        metaFile << metadata.dump(2);
+        metaFile.close();
+        
+        r2Client.uploadVideo(metadataPath, "metadata.json");
+        
+        std::cout << "\n✅ R2 bucket standardization complete!" << std::endl;
+        std::cout << "Total videos: " << totalVideos << std::endl;
+        std::cout << "Total duration: " << totalDuration << " seconds" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error during R2 standardization: " << e.what() << std::endl;
+    }
+    
+    // Clean up temp directory
+    fs::remove_all(tempDir);
 }
 
 } // namespace VideoStandardizer
