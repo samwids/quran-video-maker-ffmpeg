@@ -71,18 +71,62 @@ if(NOT nlohmann_json_FOUND)
 endif()
 
 # Dependency: AWS SDK for C++
+# Dependency: AWS SDK for C++
 find_package(AWSSDK COMPONENTS s3)
 if(NOT AWSSDK_FOUND)
     message(STATUS "AWS SDK not found, fetching from source...")
-    FetchContent_Declare(
-        aws-sdk-cpp
-        GIT_REPOSITORY https://github.com/aws/aws-sdk-cpp.git
-        GIT_TAG        1.11.0
-    )
+    
+    # Use a more recent version that has better CMake support
+    set(AWS_SDK_CPP_VERSION "1.11.440")
+    
+    # Set build options before fetching
     set(BUILD_ONLY "s3" CACHE STRING "" FORCE)
     set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     set(AUTORUN_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(MINIMIZE_SIZE ON CACHE BOOL "" FORCE)
+    set(ENABLE_UNITY_BUILD ON CACHE BOOL "" FORCE)
+    
+    # Disable features we don't need
+    set(ENABLE_VIRTUAL_OPERATIONS OFF CACHE BOOL "" FORCE)
+    
+    # Use system dependencies where possible
+    set(BUILD_DEPS OFF CACHE BOOL "" FORCE)
+    set(FORCE_SHARED_CRT ON CACHE BOOL "" FORCE)
+    
+    # For curl on Linux
+    if(UNIX AND NOT APPLE)
+        set(FORCE_CURL ON CACHE BOOL "" FORCE)
+    endif()
+    
+    # AWS SDK has issues with newer CMake policies
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+        set(CMAKE_POLICY_DEFAULT_CMP0135 NEW)
+        set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    endif()
+    
+    # For Windows, use a shorter path to avoid path length issues
+    if(WIN32)
+        set(FETCHCONTENT_BASE_DIR "C:/tmp/fc" CACHE PATH "" FORCE)
+    endif()
+    
+    FetchContent_Declare(
+        aws-sdk-cpp
+        URL https://github.com/aws/aws-sdk-cpp/archive/refs/tags/${AWS_SDK_CPP_VERSION}.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    
+    # Set CMake minimum version policy for the subdirectory
+    set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
+    
     FetchContent_MakeAvailable(aws-sdk-cpp)
+    
+    # After fetch, we need to help find the targets
+    if(TARGET aws-cpp-sdk-s3)
+        add_library(AWS::aws-cpp-sdk-s3 ALIAS aws-cpp-sdk-s3)
+    endif()
+    if(TARGET aws-cpp-sdk-core)
+        add_library(AWS::aws-cpp-sdk-core ALIAS aws-cpp-sdk-core)
+    endif()
 endif()
 
 # Find required system libraries
@@ -128,21 +172,39 @@ target_include_directories(qvm_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(qvm_lib PUBLIC
-    PkgConfig::AVFORMAT
-    PkgConfig::AVCODEC
-    PkgConfig::AVFILTER
-    PkgConfig::AVUTIL
-    PkgConfig::SWSCALE
-    PkgConfig::FREETYPE
-    PkgConfig::HARFBUZZ
-    cpr::cpr
-    nlohmann_json::nlohmann_json
-    Threads::Threads
-    cxxopts::cxxopts
-    aws-cpp-sdk-s3
-    aws-cpp-sdk-core
-)
+if(AWSSDK_FOUND)
+    target_link_libraries(qvm_lib PUBLIC
+        PkgConfig::AVFORMAT
+        PkgConfig::AVCODEC
+        PkgConfig::AVFILTER
+        PkgConfig::AVUTIL
+        PkgConfig::SWSCALE
+        PkgConfig::FREETYPE
+        PkgConfig::HARFBUZZ
+        cpr::cpr
+        nlohmann_json::nlohmann_json
+        Threads::Threads
+        cxxopts::cxxopts
+        ${AWSSDK_LINK_LIBRARIES}
+    )
+else()
+    # When using FetchContent
+    target_link_libraries(qvm_lib PUBLIC
+        PkgConfig::AVFORMAT
+        PkgConfig::AVCODEC
+        PkgConfig::AVFILTER
+        PkgConfig::AVUTIL
+        PkgConfig::SWSCALE
+        PkgConfig::FREETYPE
+        PkgConfig::HARFBUZZ
+        cpr::cpr
+        nlohmann_json::nlohmann_json
+        Threads::Threads
+        cxxopts::cxxopts
+        aws-cpp-sdk-s3
+        aws-cpp-sdk-core
+    )
+endif()
 
 target_link_libraries(qvm PRIVATE qvm_lib)
 
