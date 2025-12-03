@@ -35,35 +35,46 @@ jobs:
     - name: Download data.tar
       run: curl -L https://qvm-r2-storage.tawbah.app/data.tar -o data.tar
 
-    - name: Install build deps and AWS SDK
+    - name: Install build deps
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           libavformat-dev libavcodec-dev libavfilter-dev \
           libavutil-dev libswscale-dev \
           libfreetype6-dev libharfbuzz-dev \
-          libcurl4-openssl-dev libssl-dev zlib1g-dev \
-          ffmpeg
-        
-        # Install AWS SDK from apt (Ubuntu 22.04 has it)
-        sudo apt-get install -y libaws-sdk-cpp-dev || {
-          # If not available, build minimal AWS SDK
-          echo "Building AWS SDK from source (minimal S3 only)..."
-          cd /tmp
-          git clone --depth 1 -b 1.11.440 https://github.com/aws/aws-sdk-cpp.git
-          cd aws-sdk-cpp
-          mkdir build && cd build
-          cmake .. -DBUILD_ONLY=s3 -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
-                   -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_DEPS=OFF
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-        }
+          libcurl4-openssl-dev libssl-dev zlib1g-dev
+        sudo apt-get install -y ffmpeg
+
+    - name: Cache vcpkg
+      id: cache-vcpkg
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/vcpkg
+          ~/.cache/vcpkg
+        key: vcpkg-linux-x64-aws-sdk-v2
+
+    - name: Setup vcpkg
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+        ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+    - name: Install AWS SDK via vcpkg
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+      run: |
+        ~/vcpkg/vcpkg install aws-sdk-cpp[s3]:x64-linux
+
+    - name: Set vcpkg environment
+      run: |
+        echo "VCPKG_ROOT=$HOME/vcpkg" >> $GITHUB_ENV
+        echo "CMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
 
     - name: Configure CMake
       run: |
         cmake -B $BUILD_DIR \
           -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
           -DFETCHCONTENT_QUIET=OFF \
           -S ${{ github.workspace }}
 
@@ -111,30 +122,17 @@ jobs:
     - name: Install dependencies via Homebrew
       run: |
         brew update
-        brew install ffmpeg freetype harfbuzz pkg-config
-        # Try to install aws-sdk-cpp from homebrew
-        brew install aws-sdk-cpp || {
-          # If not available or wrong version, build minimal version
-          echo "Building AWS SDK from source (minimal S3 only)..."
-          cd /tmp
-          git clone --depth 1 -b 1.11.440 https://github.com/aws/aws-sdk-cpp.git
-          cd aws-sdk-cpp
-          mkdir build && cd build
-          cmake .. -DBUILD_ONLY=s3 -DENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
-                   -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_DEPS=OFF
-          make -j$(sysctl -n hw.logicalcpu)
-          sudo make install
-        }
+        brew install ffmpeg freetype harfbuzz pkg-config aws-sdk-cpp
 
-    - name: Export paths
+    - name: Export pkgconfig paths
       run: |
-        echo "PKG_CONFIG_PATH=/opt/homebrew/opt/ffmpeg/lib/pkgconfig:/usr/local/opt/ffmpeg/lib/pkgconfig:/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-        echo "CMAKE_PREFIX_PATH=/usr/local:/opt/homebrew:$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=/opt/homebrew/opt/ffmpeg/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:/usr/local/opt/ffmpeg/lib/pkgconfig:/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
     - name: Configure CMake
       run: |
         cmake -B $BUILD_DIR \
           -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
           -DFETCHCONTENT_QUIET=OFF \
           -S ${{ github.workspace }}
 

@@ -67,71 +67,52 @@ if(NOT nlohmann_json_FOUND)
 endif()
 
 # Dependency: AWS SDK for C++
-# Try multiple methods to find AWS SDK
-set(AWS_SDK_FOUND FALSE)
-
-# Method 1: Standard find_package
+# Try to find pre-installed AWS SDK first (from vcpkg, MSYS2, Homebrew, or system)
 find_package(AWSSDK CONFIG COMPONENTS s3 QUIET)
-if(AWSSDK_FOUND)
-    message(STATUS "Found AWS SDK via find_package")
-    set(AWS_SDK_LIBS ${AWSSDK_LINK_LIBRARIES})
-    set(AWS_SDK_FOUND TRUE)
-endif()
 
-# Method 2: Try individual components (some package managers split them)
-if(NOT AWS_SDK_FOUND)
+if(AWSSDK_FOUND)
+    message(STATUS "Found AWS SDK via find_package(AWSSDK)")
+    set(AWS_SDK_LIBS ${AWSSDK_LINK_LIBRARIES})
+else()
+    # Try alternative package names (MSYS2 and Homebrew use different naming)
     find_package(aws-cpp-sdk-core CONFIG QUIET)
     find_package(aws-cpp-sdk-s3 CONFIG QUIET)
     
     if(TARGET aws-cpp-sdk-s3 AND TARGET aws-cpp-sdk-core)
         message(STATUS "Found AWS SDK components individually")
         set(AWS_SDK_LIBS aws-cpp-sdk-s3 aws-cpp-sdk-core)
-        set(AWS_SDK_FOUND TRUE)
+    else()
+        # Try pkg-config as fallback (Homebrew)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(AWS_SDK_CORE QUIET aws-cpp-sdk-core)
+            pkg_check_modules(AWS_SDK_S3 QUIET aws-cpp-sdk-s3)
+        endif()
+        
+        if(AWS_SDK_CORE_FOUND AND AWS_SDK_S3_FOUND)
+            message(STATUS "Found AWS SDK via pkg-config")
+            set(AWS_SDK_LIBS ${AWS_SDK_S3_LIBRARIES} ${AWS_SDK_CORE_LIBRARIES})
+            include_directories(${AWS_SDK_CORE_INCLUDE_DIRS} ${AWS_SDK_S3_INCLUDE_DIRS})
+            link_directories(${AWS_SDK_CORE_LIBRARY_DIRS} ${AWS_SDK_S3_LIBRARY_DIRS})
+        else()
+            # Try direct library search (for Homebrew installs)
+            find_library(AWS_CORE_LIB aws-cpp-sdk-core HINTS /opt/homebrew/lib /usr/local/lib)
+            find_library(AWS_S3_LIB aws-cpp-sdk-s3 HINTS /opt/homebrew/lib /usr/local/lib)
+            find_path(AWS_CORE_INCLUDE aws/core/Aws.h HINTS /opt/homebrew/include /usr/local/include)
+            
+            if(AWS_CORE_LIB AND AWS_S3_LIB AND AWS_CORE_INCLUDE)
+                message(STATUS "Found AWS SDK via direct library search")
+                set(AWS_SDK_LIBS ${AWS_S3_LIB} ${AWS_CORE_LIB})
+                include_directories(${AWS_CORE_INCLUDE})
+            else()
+                message(FATAL_ERROR 
+                    "AWS SDK not found. Please install it via:\n"
+                    "  - vcpkg: vcpkg install aws-sdk-cpp[s3]\n"
+                    "  - MSYS2: pacman -S mingw-w64-ucrt-x86_64-aws-sdk-cpp\n"
+                    "  - Homebrew: brew install aws-sdk-cpp")
+            endif()
+        endif()
     endif()
-endif()
-
-# Method 3: Try pkg-config (some systems use this)
-if(NOT AWS_SDK_FOUND AND PKG_CONFIG_FOUND)
-    pkg_check_modules(AWS_CORE QUIET aws-cpp-sdk-core)
-    pkg_check_modules(AWS_S3 QUIET aws-cpp-sdk-s3)
-    
-    if(AWS_CORE_FOUND AND AWS_S3_FOUND)
-        message(STATUS "Found AWS SDK via pkg-config")
-        set(AWS_SDK_LIBS ${AWS_S3_LIBRARIES} ${AWS_CORE_LIBRARIES})
-        set(AWS_SDK_INCLUDE_DIRS ${AWS_S3_INCLUDE_DIRS} ${AWS_CORE_INCLUDE_DIRS})
-        set(AWS_SDK_FOUND TRUE)
-    endif()
-endif()
-
-# Method 4: Manual search in common locations
-if(NOT AWS_SDK_FOUND)
-    find_library(AWS_CORE_LIB NAMES aws-cpp-sdk-core 
-        PATHS /usr/local/lib /opt/homebrew/lib /usr/lib)
-    find_library(AWS_S3_LIB NAMES aws-cpp-sdk-s3 
-        PATHS /usr/local/lib /opt/homebrew/lib /usr/lib)
-    find_path(AWS_INCLUDE_DIR aws/core/Aws.h
-        PATHS /usr/local/include /opt/homebrew/include /usr/include)
-    
-    if(AWS_CORE_LIB AND AWS_S3_LIB AND AWS_INCLUDE_DIR)
-        message(STATUS "Found AWS SDK via manual search")
-        set(AWS_SDK_LIBS ${AWS_S3_LIB} ${AWS_CORE_LIB})
-        set(AWS_SDK_INCLUDE_DIRS ${AWS_INCLUDE_DIR})
-        set(AWS_SDK_FOUND TRUE)
-    endif()
-endif()
-
-if(NOT AWS_SDK_FOUND)
-    message(FATAL_ERROR 
-        "AWS SDK not found. Please install it via:\n"
-        "  - Ubuntu/Debian: sudo apt install libaws-sdk-cpp-dev\n"
-        "  - macOS: brew install aws-sdk-cpp\n"
-        "  - MSYS2: pacman -S mingw-w64-ucrt-x86_64-aws-sdk-cpp\n"
-        "  - Or build from source with: cmake -DBUILD_ONLY=s3")
-endif()
-
-# Add include directories if we found them via pkg-config or manual search
-if(DEFINED AWS_SDK_INCLUDE_DIRS)
-    target_include_directories(qvm_lib PUBLIC ${AWS_SDK_INCLUDE_DIRS})
 endif()
 
 # Find required system libraries
