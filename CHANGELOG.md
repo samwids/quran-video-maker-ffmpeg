@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. This project follows [Semantic Versioning](https://semver.org) and takes inspiration from [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - 2025-10-12
+## [0.2.1] - 2025-10-12
 
 ### Added
 - **Verse Segmentation for Long Verses**: Break up lengthy verses into timed segments that display sequentially
