@@ -1,5 +1,7 @@
 # quran-video-maker-ffmpeg [WIP]
 
+[![CMake (Linux + macOS + Windows)](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/cmake-cross-platform.yml/badge.svg)](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/cmake-cross-platform.yml) [![Release](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/release.yml/badge.svg)](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/release.yml) [![Update Package Managers](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/update-package-managers.yml/badge.svg)](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/update-package-managers.yml) [![Install Smoke Test](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/install-smoke.yml/badge.svg)](https://github.com/ashaltu/quran-video-maker-ffmpeg/actions/workflows/install-smoke.yml) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashaltu/quran-video-maker-ffmpeg)
+
 <p align="center">
   A high-performance C++/FFmpeg tool for generating beautiful Quran verse videos with synchronized Arabic text, translations, and recitations.
 </p>
