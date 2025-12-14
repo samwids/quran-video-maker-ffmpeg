@@ -3,7 +3,7 @@
   "description": "C++/FFmpeg tool that generates high-quality Quran verse videos",
   "homepage": "https://github.com/ashaltu/quran-video-maker-ffmpeg",
   "license": "GPL-3.0",
-  "url": "https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/v0.0.0/qvm-0.0.0-dev-win64.zip",
+  "url": "https://github.com/ashaltu/quran-video-maker-ffmpeg/releases/download/v0.0.0/qvm-0.0.0-win64.zip",
   "hash": "REPLACE_WITH_SHA256_OF_qvm-bin-windows.zip",
   "extract_dir": "qvm-0.0.0-win64",
   "bin": "bin\\qvm.exe",
