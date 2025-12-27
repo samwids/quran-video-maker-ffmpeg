@@ -6,7 +6,7 @@
   
   "_comment_content": "Content selection",
   "reciterId": 17,
-  "translationId": 0,
+  "translationId": 4,
   "recitationMode": "gapped",
   
   "_comment_mode": "Recitation mode: 'gapped' for ayah-by-ayah (with pauses), 'gapless' for continuous surah",
@@ -30,19 +30,19 @@
     "size": 50,
     "color": "FFFFFF"
   },
-  
+    
   "translationFallbackFontFamily": "American Captain",
   
   "_comment_visual": "Visual styling",
   "overlayColor": "0x000000@0.0",
   "assetFolderPath": "assets",
-  "assetBgVideo": "videos/themes/stars7p.mp4",
+  "assetBgVideo": "videos/themes/stars.mp4",
   
   "_comment_data": "Data file paths",
   "quranWordByWordPath": "data/quran/qpc-hafs-word-by-word.json",
   
   "_comment_timing": "Timing parameters (in seconds unless specified)",
-  "introDuration": 0,
+  "introDuration": 1.0,
   "pauseAfterIntroDuration": 0.5,
   "introFadeOutMs": 500,
   
@@ -85,7 +85,7 @@
 
   "_comment_video_selection": "Dynamic background video selection",
   "videoSelection": {
-    "enableDynamicBackgrounds": true,
+    "enableDynamicBackgrounds": false,
     "seed": 99,
     
     "_comment_local": "For local directory usage",
