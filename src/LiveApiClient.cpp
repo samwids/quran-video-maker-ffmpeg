@@ -435,7 +435,7 @@ std::vector<VerseData> LiveApiClient::fetchQuranData(const CLIOptions& options, 
     }
 
     // Remove last word from Bismillah if it's not Surah 1 or 9
-    if (options.surah != 1 && options.surah != 9) {
+    if ((options.surah != 1 && options.surah != 9) || options.skipStartBismillah) {
         if (!results.empty() && !results[0].text.empty()) {
             trim_last_word(results[0].text);
         }

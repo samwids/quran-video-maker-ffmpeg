@@ -136,6 +136,7 @@ struct CLIOptions {
     int fps = -1;
     int arabicFontSize = -1;
     int translationFontSize = -1;
+    std::string translationFontColor = "";
     bool noCache = false;
     bool clearCache = false;
     std::string preset = "fast";
@@ -145,7 +146,7 @@ struct CLIOptions {
     bool emitProgress = false;
 	bool showSurahHeader = false;
 	int surahHeaderFontSize = 50;  
-	int surahHeaderMarginTop = 300;
+	int surahHeaderMarginTop = 100;
 	bool skipStartBismillah = false;
     
     // Custom recitation support (gapless only)

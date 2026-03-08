@@ -14,6 +14,7 @@
 #include "metadata_writer.h"
 #include "cache_utils.h"
 #include "verse_segmentation.h"
+#include "localization_utils.h"
 
 namespace fs = std::filesystem;
 
@@ -35,6 +36,7 @@ int main(int argc, char* argv[]) {
         ("fps", "Frames per second", cxxopts::value<int>())
         ("arabic-font-size", "Override Arabic font size", cxxopts::value<int>())
         ("translation-font-size", "Override translation font size", cxxopts::value<int>())
+        ("translation-font-color", "Override translation font color (hex format, e.g., FFFFFF)", cxxopts::value<std::string>())
         ("text-padding", "Horizontal padding fraction (0-0.45) for subtitles", cxxopts::value<double>())
         ("e,encoder", "Choose encoder: 'software' (default) or 'hardware'", cxxopts::value<std::string>()->default_value("software"))
         ("p,preset", "Software encoder preset for speed/quality (ultrafast, fast, medium)", cxxopts::value<std::string>()->default_value("fast"))
@@ -143,6 +145,7 @@ int main(int argc, char* argv[]) {
     if (result.count("fps")) options.fps = result["fps"].as<int>();
     if (result.count("arabic-font-size")) options.arabicFontSize = result["arabic-font-size"].as<int>();
     if (result.count("translation-font-size")) options.translationFontSize = result["translation-font-size"].as<int>();
+    if (result.count("translation-font-color")) options.translationFontColor = result["translation-font-color"].as<std::string>();
     options.noCache = result["no-cache"].as<bool>();
     options.clearCache = result["clear-cache"].as<bool>();
     options.preset = result["preset"].as<std::string>();
@@ -226,8 +229,14 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("Failed to create directory: " + default_output_dir.string());
             }
         }
-        options.output = "out/surah-" + std::to_string(options.surah) + "_" + std::to_string(options.from) + "-" + std::to_string(options.to) + ".mp4";
-    }
+
+		//options.output = "out/surah-" + std::to_string(options.surah) + "_" + std::to_string(options.from) + "-" + std::to_string(options.to) + ".mp4";
+
+		//format output filename
+		std::string englishName = QuranData::surahNames.at(options.surah);  
+		std::string arabicName = LocalizationUtils::getLocalizedSurahName(options.surah, "urd");  //to add arabic surah name in file name
+		options.output = "out/Surah - " + std::to_string(options.surah) + "_" + std::to_string(options.from) + "_" + std::to_string(options.to) + " - " + englishName + " - t" + std::to_string(options.translationId) + "_r" + std::to_string(options.reciterId) + ".mp4";
+	}
     
     try {
         fs::path cacheDir = CacheUtils::getCacheRoot();

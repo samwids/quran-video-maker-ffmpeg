@@ -225,10 +225,10 @@ void VideoGenerator::generateVideo(const CLIOptions& options,
                 final_cmd << ",drawbox=x=0:y=0:w=iw:h=ih:color=" << config.overlayColor << ":t=fill";
             }
             
-            // Add subtitles
-            final_cmd << ",ass='" << ass_ffmpeg_path << "':fontsdir='" 
+			// Add subtitles  
+			final_cmd << ",ass='" << ass_ffmpeg_path << "':fontsdir='"   
                       << fonts_ffmpeg_path << "'[v];";
-            
+			  
             // Handle audio concatenation
             int audioInputIndex = bgInputFiles.empty() ? 1 : bgInputFiles.size();
             final_cmd << "[" << audioInputIndex << ":a][" << (audioInputIndex + 1) << ":a]concat=n=2:v=0:a=1[a]\" ";
@@ -273,8 +273,8 @@ void VideoGenerator::generateVideo(const CLIOptions& options,
                 final_cmd << ",drawbox=x=0:y=0:w=iw:h=ih:color=" << config.overlayColor << ":t=fill";
             }
             
-            // Add subtitles
-            final_cmd << ",ass='" << ass_ffmpeg_path << "':fontsdir='" 
+			// Add subtitles    
+			final_cmd << ",ass='" << ass_ffmpeg_path << "':fontsdir='"   
                       << fonts_ffmpeg_path << "'[v]\" ";
             
             // Map outputs

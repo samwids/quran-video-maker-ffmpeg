@@ -123,6 +123,7 @@ std::string buildAssFile(const AppConfig& config,
 
     std::string language_code = LocalizationUtils::getLanguageCode(config);
     std::string localized_surah_name = LocalizationUtils::getLocalizedSurahName(options.surah, language_code);
+    std::string localized_surah_name_ar = LocalizationUtils::getLocalizedSurahName(options.surah, "ar");
     std::string localized_surah_label = LocalizationUtils::getLocalizedSurahLabel(language_code);
     std::string localized_surah_text = localized_surah_label + " " + localized_surah_name;
 
@@ -144,6 +145,8 @@ std::string buildAssFile(const AppConfig& config,
     ass_file << "Style: Translation," << config.translationFont.family << "," << config.translationFont.size << "," << format_ass_color(config.translationFont.color) << ",&H000000FF,&H00000000,&H99000000,0,0,0,0,100,100,0,0,1,1,1,5," << styleMargin << "," << styleMargin << "," << config.height / 2 + config.translationFont.size << ",-1\n\n";
     ass_file << "[Events]\n";
     ass_file << "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+    
+    //std::cout << "DEBUG: Translation Style: FontFamily=" << config.translationFont.family << ", FontFile=" << config.translationFont.file << std::endl;
 
     // Intro subtitle
     int base_font_size = config.translationFont.size;
@@ -173,7 +176,6 @@ std::string buildAssFile(const AppConfig& config,
     // Collect all dialogue entries (verses and segments)
     std::vector<SegmentDialogue> allDialogues;
 	
-	//***//
 	// Calculate total video duration (needed for potential header)  
 	double total_video_duration = intro_duration + pause_after_intro_duration;  
 	for (const auto& verse : verses) {  
@@ -186,8 +188,8 @@ std::string buildAssFile(const AppConfig& config,
 		int header_font_size = options.surahHeaderFontSize;  
 		int header_y_position = options.surahHeaderMarginTop;  
 		  
-		// Prefix with Arabic "سورہٴ" before the localized surah name  
-		std::string header_text = "سورہٴ " + localized_surah_name;  
+		// Prefix with Arabic "سورة" before the localized surah name  
+		std::string header_text = "سورة " + localized_surah_name_ar;
 		  
 		// Use Arabic font for the header (no font fallback needed)  
 		std::string header_text_render = "{\\fn" + config.surahHeaderFont.family + "}" + header_text;  
@@ -209,7 +211,6 @@ std::string buildAssFile(const AppConfig& config,
 
     for (size_t idx = 0; idx < verses.size(); ++idx) {
         const VerseData& verse = verses[idx];
-
         double verse_audio_start = verse.timestampFromMs / 1000.0;
         
         // Check if this verse should be segmented
@@ -290,6 +291,7 @@ std::string buildAssFile(const AppConfig& config,
 					  
             dialogue.startTime = cumulative_time;
             dialogue.endTime = cumulative_time + verse.durationInSeconds;
+            //dialogue.arabicText = layout.wrappedArabic;
             dialogue.translationText = applyLatinFontFallback(
                 layout.wrappedTranslation, 
                 config.translationFallbackFontFamily, 
