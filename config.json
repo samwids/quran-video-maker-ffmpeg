@@ -22,7 +22,7 @@
   "translationFont": {
     "size": 55,
     "color": "FFFFFF",
-    "_comments_size": "Adjust or pass throgh CLI parameters - 55 - Urdu, 35 - English / French"
+    "_comments_size": "Adjust or pass throgh CLI parameters for e.g. --translation-font-size 55 for Urdu, 35 for English / French"
   },
 
   "translationFallbackFontFamily": "Roboto",

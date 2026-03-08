@@ -229,14 +229,14 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("Failed to create directory: " + default_output_dir.string());
             }
         }
-
-		//options.output = "out/surah-" + std::to_string(options.surah) + "_" + std::to_string(options.from) + "-" + std::to_string(options.to) + ".mp4";
+        
+        //options.output = "out/surah-" + std::to_string(options.surah) + "_" + std::to_string(options.from) + "-" + std::to_string(options.to) + ".mp4";
 
 		//format output filename
 		std::string englishName = QuranData::surahNames.at(options.surah);  
 		std::string arabicName = LocalizationUtils::getLocalizedSurahName(options.surah, "urd");  //to add arabic surah name in file name
 		options.output = "out/Surah - " + std::to_string(options.surah) + "_" + std::to_string(options.from) + "_" + std::to_string(options.to) + " - " + englishName + " - t" + std::to_string(options.translationId) + "_r" + std::to_string(options.reciterId) + ".mp4";
-	}
+    }
     
     try {
         fs::path cacheDir = CacheUtils::getCacheRoot();
