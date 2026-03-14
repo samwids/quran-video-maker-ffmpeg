@@ -15,10 +15,15 @@
 #include "cache_utils.h"
 #include "verse_segmentation.h"
 #include "localization_utils.h"
+#include <windows.h>
 
 namespace fs = std::filesystem;
 
 int main(int argc, char* argv[]) {
+    
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
     std::vector<std::string> invocationArgs(argv, argv + argc);
     cxxopts::Options cli_parser("QuranVideoMaker", "Generates Quran videos using FFmpeg");
     // TODO: fix so default values removed and values read from config instead
@@ -234,7 +239,8 @@ int main(int argc, char* argv[]) {
 
 		//format output filename
 		std::string englishName = QuranData::surahNames.at(options.surah);  
-		std::string arabicName = LocalizationUtils::getLocalizedSurahName(options.surah, "urd");  //to add arabic surah name in file name
+		std::string arabicName = LocalizationUtils::getLocalizedSurahName(options.surah, "ar");  //to add arabic surah name in file name
+        //std::cout << "Arabic Surah Name " << arabicName << std::endl;
 		options.output = "out/Surah - " + std::to_string(options.surah) + "_" + std::to_string(options.from) + "_" + std::to_string(options.to) + " - " + englishName + " - t" + std::to_string(options.translationId) + "_r" + std::to_string(options.reciterId) + ".mp4";
     }
     
